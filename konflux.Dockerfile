@@ -2,36 +2,35 @@ FROM registry.redhat.io/ubi9/go-toolset:1.23 AS builder
 COPY --chown=1001:0 . /workspace
 WORKDIR /workspace
 
-# FIX ME: need CI_VERSION and CI_KANTRA_UPSTREAM_COMMIT
 RUN CGO_ENABLED=0 GOOS=linux GOEXPERIMENT=strictfipsruntime go build -tags strictfipsruntime \
---ldflags="-X 'github.com/konveyor-ecosystem/kantra/cmd.Version=$CI_VERSION' \
--X 'github.com/konveyor-ecosystem/kantra/cmd.RunnerImage=registry.redhat.io/mta/mta-cli-rhel9:$CI_VERSION' \
+--ldflags="-X 'github.com/konveyor-ecosystem/kantra/cmd.Version=$BUILD_VERSION' \
+-X 'github.com/konveyor-ecosystem/kantra/cmd.RunnerImage=registry.redhat.io/mta/mta-cli-rhel9:$BUILD_VERSION' \
 -X 'github.com/konveyor-ecosystem/kantra/cmd.JavaBundlesLocation=/jdtls/java-analyzer-bundle/java-analyzer-bundle.core/target/java-analyzer-bundle.core.jar' \
--X 'github.com/konveyor-ecosystem/kantra/cmd.JavaProviderImage=registry.redhat.io/mta/mta-java-external-provider-rhel9:$CI_VERSION' \
--X 'github.com/konveyor-ecosystem/kantra/cmd.DotnetProviderImage=registry.redhat.io/mta/mta-dotnet-external-provider-rhel9:$CI_VERSION' \
--X 'github.com/konveyor-ecosystem/kantra/cmd.GenericProviderImage=registry.redhat.io/mta/mta-generic-external-provider-rhel9:$CI_VERSION' \
+-X 'github.com/konveyor-ecosystem/kantra/cmd.JavaProviderImage=registry.redhat.io/mta/mta-java-external-provider-rhel9:$BUILD_VERSION' \
+-X 'github.com/konveyor-ecosystem/kantra/cmd.DotnetProviderImage=registry.redhat.io/mta/mta-dotnet-external-provider-rhel9:$BUILD_VERSION' \
+-X 'github.com/konveyor-ecosystem/kantra/cmd.GenericProviderImage=registry.redhat.io/mta/mta-generic-external-provider-rhel9:$BUILD_VERSION' \
 -X 'github.com/konveyor-ecosystem/kantra/cmd.RootCommandName=mta-cli' \
--X 'github.com/konveyor-ecosystem/kantra/cmd.BuildCommit=$CI_KANTRA_UPSTREAM_COMMIT'" \
+-X 'github.com/konveyor-ecosystem/kantra/cmd.BuildCommit=$SOURCE_GIT_COMMIT'" \
  -a -o mta-cli main.go
 RUN CGO_ENABLED=0 GOOS=darwin go build \
---ldflags="-X 'github.com/konveyor-ecosystem/kantra/cmd.Version=$CI_VERSION' \
--X 'github.com/konveyor-ecosystem/kantra/cmd.RunnerImage=registry.redhat.io/mta/mta-cli-rhel9:$CI_VERSION' \
+--ldflags="-X 'github.com/konveyor-ecosystem/kantra/cmd.Version=$BUILD_VERSION' \
+-X 'github.com/konveyor-ecosystem/kantra/cmd.RunnerImage=registry.redhat.io/mta/mta-cli-rhel9:$BUILD_VERSION' \
 -X 'github.com/konveyor-ecosystem/kantra/cmd.JavaBundlesLocation=/jdtls/java-analyzer-bundle/java-analyzer-bundle.core/target/java-analyzer-bundle.core.jar' \
--X 'github.com/konveyor-ecosystem/kantra/cmd.JavaProviderImage=registry.redhat.io/mta/mta-java-external-provider-rhel9:$CI_VERSION' \
--X 'github.com/konveyor-ecosystem/kantra/cmd.DotnetProviderImage=registry.redhat.io/mta/mta-dotnet-external-provider-rhel9:$CI_VERSION' \
--X 'github.com/konveyor-ecosystem/kantra/cmd.GenericProviderImage=registry.redhat.io/mta/mta-generic-external-provider-rhel9:$CI_VERSION' \
+-X 'github.com/konveyor-ecosystem/kantra/cmd.JavaProviderImage=registry.redhat.io/mta/mta-java-external-provider-rhel9:$BUILD_VERSION' \
+-X 'github.com/konveyor-ecosystem/kantra/cmd.DotnetProviderImage=registry.redhat.io/mta/mta-dotnet-external-provider-rhel9:$BUILD_VERSION' \
+-X 'github.com/konveyor-ecosystem/kantra/cmd.GenericProviderImage=registry.redhat.io/mta/mta-generic-external-provider-rhel9:$BUILD_VERSION' \
 -X 'github.com/konveyor-ecosystem/kantra/cmd.RootCommandName=mta-cli' \
--X 'github.com/konveyor-ecosystem/kantra/cmd.BuildCommit=$CI_KANTRA_UPSTREAM_COMMIT'" \
+-X 'github.com/konveyor-ecosystem/kantra/cmd.BuildCommit=$SOURCE_GIT_COMMIT'" \
  -a -o darwin-mta-cli main.go
 RUN CGO_ENABLED=0 GOOS=windows go build \
---ldflags="-X 'github.com/konveyor-ecosystem/kantra/cmd.Version=$CI_VERSION' \
--X 'github.com/konveyor-ecosystem/kantra/cmd.RunnerImage=registry.redhat.io/mta/mta-cli-rhel9:$CI_VERSION' \
+--ldflags="-X 'github.com/konveyor-ecosystem/kantra/cmd.Version=$BUILD_VERSION' \
+-X 'github.com/konveyor-ecosystem/kantra/cmd.RunnerImage=registry.redhat.io/mta/mta-cli-rhel9:$BUILD_VERSION' \
 -X 'github.com/konveyor-ecosystem/kantra/cmd.JavaBundlesLocation=/jdtls/java-analyzer-bundle/java-analyzer-bundle.core/target/java-analyzer-bundle.core.jar' \
--X 'github.com/konveyor-ecosystem/kantra/cmd.JavaProviderImage=registry.redhat.io/mta/mta-java-external-provider-rhel9:$CI_VERSION' \
--X 'github.com/konveyor-ecosystem/kantra/cmd.DotnetProviderImage=registry.redhat.io/mta/mta-dotnet-external-provider-rhel9:$CI_VERSION' \
--X 'github.com/konveyor-ecosystem/kantra/cmd.GenericProviderImage=registry.redhat.io/mta/mta-generic-external-provider-rhel9:$CI_VERSION' \
+-X 'github.com/konveyor-ecosystem/kantra/cmd.JavaProviderImage=registry.redhat.io/mta/mta-java-external-provider-rhel9:$BUILD_VERSION' \
+-X 'github.com/konveyor-ecosystem/kantra/cmd.DotnetProviderImage=registry.redhat.io/mta/mta-dotnet-external-provider-rhel9:$BUILD_VERSION' \
+-X 'github.com/konveyor-ecosystem/kantra/cmd.GenericProviderImage=registry.redhat.io/mta/mta-generic-external-provider-rhel9:$BUILD_VERSION' \
 -X 'github.com/konveyor-ecosystem/kantra/cmd.RootCommandName=mta-cli' \
--X 'github.com/konveyor-ecosystem/kantra/cmd.BuildCommit=$CI_KANTRA_UPSTREAM_COMMIT'" \
+-X 'github.com/konveyor-ecosystem/kantra/cmd.BuildCommit=$SOURCE_GIT_COMMIT'" \
  -a -o windows-mta-cli.exe main.go
 
 FROM registry.redhat.io/ubi9:latest AS rulesets
