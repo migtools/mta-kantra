@@ -1,0 +1,7 @@
+[submodule "hack/build/rulesets"]
+	path = hack/build/rulesets
+	url = https://github.com/konveyor/rulesets
+	branch = main
+[submodule "hack/build/windup-rulesets"]
+	path = hack/build/windup-rulesets
+	url = https://github.com/windup/windup-rulesets
