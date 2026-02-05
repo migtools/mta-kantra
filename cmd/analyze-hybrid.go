@@ -10,6 +10,8 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -29,6 +31,10 @@ import (
 	"github.com/sirupsen/logrus"
 	"go.opentelemetry.io/otel/trace"
 	"gopkg.in/yaml.v2"
+)
+
+var (
+	windowsMountRegex = regexp.MustCompile("/mnt/([a-z])/")
 )
 
 // validateProviderConfig validates hybrid-mode-specific configuration before starting provider containers.
@@ -462,7 +468,7 @@ func (a *analyzeCommand) setupBuiltinProviderHybrid(ctx context.Context, additio
 		return nil, nil, err
 	}
 
-	a.log.V(1).Info("starting provider", "provider", "builtin")
+	analysisLog.V(1).Info("starting provider", "provider", "builtin", "locations", providerLocations)
 	if _, err := builtinProvider.ProviderInit(ctx, additionalConfigs); err != nil {
 		a.log.Error(err, "unable to init the builtin provider")
 		return nil, nil, err
@@ -485,7 +491,6 @@ func (a *analyzeCommand) setupBuiltinProviderHybrid(ctx context.Context, additio
 //   - Provider isolation and consistency from containers
 func (a *analyzeCommand) RunAnalysisHybridInProcess(ctx context.Context) error {
 	startTotal := time.Now()
-
 	// Create progress mode to encapsulate progress reporting behavior
 	progressMode := NewProgressMode(a.noProgress)
 
@@ -724,21 +729,30 @@ func (a *analyzeCommand) RunAnalysisHybridInProcess(ctx context.Context) error {
 				err = json.Unmarshal(o, &j)
 				if len(j) == 1 {
 					found := false
-					if volPath, ok := j[0]["Mountpoint"]; ok {
-						if _, err := os.Lstat(volPath.(string)); err == nil {
-							providerHostRoot = volPath.(string)
-							found = true
-						}
-					}
-					if opt, ok := j[0]["Options"]; !found && ok {
+					if opt, ok := j[0]["Options"]; ok {
 						op, ok := opt.(map[string]any)
 						if ok {
 							if volPath, ok := op["device"]; ok {
-								if _, err := os.Lstat(volPath.(string)); err == nil {
-									providerHostRoot = volPath.(string)
+								volPathString := volPath.(string)
+								if runtime.GOOS == "windows" && windowsMountRegex.MatchString(volPathString) {
+									drive := windowsMountRegex.FindStringSubmatch(volPathString)
+									if len(drive) == 2 {
+										volPathString = filepath.FromSlash(windowsMountRegex.ReplaceAllString(volPathString, ""))
+										volPathString = fmt.Sprintf("%s:\\%s", strings.ToUpper(drive[1]), volPathString)
+									}
+								}
+
+								if _, err := os.Lstat(volPathString); err == nil {
+									providerHostRoot = volPathString
 									found = true
 								}
 							}
+						}
+					}
+					if volPath, ok := j[0]["Mountpoint"]; !found && ok {
+						if _, err := os.Lstat(volPath.(string)); err == nil {
+							providerHostRoot = volPath.(string)
+							found = true
 						}
 					}
 				}
@@ -752,6 +766,7 @@ func (a *analyzeCommand) RunAnalysisHybridInProcess(ctx context.Context) error {
 				} else {
 					c.Location = filepath.Join(providerHostRoot, filepath.FromSlash(rel))
 				}
+				a.log.V(3).Info("new provider host root for builtin configuration", "location", c.Location)
 			}
 			additionalBuiltinConfigs = append(additionalBuiltinConfigs, c)
 		}
