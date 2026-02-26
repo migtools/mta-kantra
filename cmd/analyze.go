@@ -84,6 +84,7 @@ type analyzeCommand struct {
 	noProgress               bool
 	overrideProviderSettings string
 	profileDir               string
+	profilePath              string
 	AnalyzeCommandContext
 }
 
@@ -120,7 +121,23 @@ func NewAnalyzeCmd(log logr.Logger) *cobra.Command {
 			}
 			analyzeCmd.kantraDir = kantraDir
 			analyzeCmd.log.Info("found kantra dir", "dir", kantraDir)
-			err = analyzeCmd.Validate(cmd.Context(), cmd)
+
+			foundProfile, err := analyzeCmd.ValidateAndLoadProfile()
+			if err != nil {
+				return err
+			}
+			if analyzeCmd.profileDir == "" && foundProfile == nil {
+				analyzeCmd.log.V(7).Info("did not find profile in default path")
+			}
+			if analyzeCmd.profilePath != "" {
+				analyzeCmd.log.Info("using profile", "profile", analyzeCmd.profilePath)
+				if err := analyzeCmd.applyProfileSettings(analyzeCmd.profilePath, cmd); err != nil {
+					analyzeCmd.log.Error(err, "failed to get settings from profile")
+					return err
+				}
+			}
+
+			err = analyzeCmd.Validate(cmd.Context(), cmd, foundProfile)
 			if err != nil {
 				log.Error(err, "failed to validate flags")
 				return err
@@ -145,39 +162,6 @@ func NewAnalyzeCmd(log logr.Logger) *cobra.Command {
 			// skip container mode check
 			if analyzeCmd.listLanguages {
 				analyzeCmd.runLocal = false
-			}
-
-			// get profile options for analysis
-			if analyzeCmd.profileDir != "" {
-				stat, err := os.Stat(analyzeCmd.profileDir)
-				if err != nil {
-					return fmt.Errorf("failed to stat profiles directory %s: %w", analyzeCmd.profileDir, err)
-				}
-
-				if !stat.IsDir() {
-					return fmt.Errorf("found profiles path %s is not a directory", analyzeCmd.profileDir)
-				}
-				profilePath := filepath.Join(analyzeCmd.profileDir, "profile.yaml")
-				err = analyzeCmd.applyProfileSettings(profilePath, cmd)
-				if err != nil {
-					analyzeCmd.log.Error(err, "failed to get settings from profile")
-					return err
-				}
-			} else {
-				// check for a single profile in default path
-				profilesDir := filepath.Join(analyzeCmd.input, profile.Profiles)
-				profilePath, err := profile.FindSingleProfile(profilesDir)
-				if err != nil {
-					analyzeCmd.log.Error(err, "did not find valid profile in default path")
-				}
-				if profilePath != "" {
-					analyzeCmd.log.Info("using found profile", "profile", profilePath)
-					err = analyzeCmd.applyProfileSettings(profilePath, cmd)
-					if err != nil {
-						analyzeCmd.log.Error(err, "failed to get settings from profile")
-						return err
-					}
-				}
 			}
 
 			if analyzeCmd.listSources || analyzeCmd.listTargets {
@@ -349,7 +333,7 @@ func NewAnalyzeCmd(log logr.Logger) *cobra.Command {
 	return analyzeCommand
 }
 
-func (a *analyzeCommand) Validate(ctx context.Context, cmd *cobra.Command) error {
+func (a *analyzeCommand) Validate(ctx context.Context, cmd *cobra.Command, foundProfile *profile.AnalysisProfile) error {
 	if a.listSources || a.listTargets || a.listProviders {
 		return nil
 	}
@@ -363,10 +347,6 @@ func (a *analyzeCommand) Validate(ctx context.Context, cmd *cobra.Command) error
 			a.isFileInput = true
 		}
 		return nil
-	}
-
-	if a.labelSelector != "" && (len(a.sources) > 0 || len(a.targets) > 0) {
-		return fmt.Errorf("must not specify label-selector and sources or targets")
 	}
 
 	for _, rulePath := range a.rules {
@@ -388,12 +368,13 @@ func (a *analyzeCommand) Validate(ctx context.Context, cmd *cobra.Command) error
 		} else {
 			a.fetchLabels(ctx, true, false, &sourcesRaw)
 		}
-		knownSources := strings.Split(sourcesRaw.String(), "\n")
+		knownSources := parseLabelLines(sourcesRaw.String())
 		for _, source := range a.sources {
 			found := false
 			for _, knownSource := range knownSources {
 				if source == knownSource {
 					found = true
+					break
 				}
 			}
 			if !found {
@@ -409,16 +390,17 @@ func (a *analyzeCommand) Validate(ctx context.Context, cmd *cobra.Command) error
 		} else {
 			a.fetchLabels(ctx, false, true, &targetRaw)
 		}
-		knownTargets := strings.Split(targetRaw.String(), "\n")
-		for _, source := range a.targets {
+		knownTargets := parseLabelLines(targetRaw.String())
+		for _, target := range a.targets {
 			found := false
 			for _, knownTarget := range knownTargets {
-				if source == knownTarget {
+				if target == knownTarget {
 					found = true
+					break
 				}
 			}
 			if !found {
-				return fmt.Errorf("unknown target: \"%s\"", source)
+				return fmt.Errorf("unknown target: \"%s\"", target)
 			}
 		}
 	}
@@ -541,6 +523,44 @@ func (a *analyzeCommand) CheckOverwriteOutput() error {
 	return nil
 }
 
+func (a *analyzeCommand) ValidateAndLoadProfile() (*profile.AnalysisProfile, error) {
+	if a.profileDir != "" {
+		stat, err := os.Stat(a.profileDir)
+		if err != nil {
+			return nil, fmt.Errorf("failed to stat profiles directory %s: %w", a.profileDir, err)
+		}
+		if !stat.IsDir() {
+			return nil, fmt.Errorf("found profiles path %s is not a directory", a.profileDir)
+		}
+		a.profilePath = filepath.Join(a.profileDir, "profile.yaml")
+	} else if a.input != "" {
+		stat, err := os.Stat(a.input)
+		if err != nil {
+			return nil, err
+		}
+		if !stat.IsDir() {
+			return nil, nil
+		}
+		profilesDir := filepath.Join(a.input, profile.Profiles)
+		foundPath, err := profile.FindSingleProfile(profilesDir)
+		if err != nil {
+			return nil, err
+		}
+		if foundPath != "" {
+			a.profilePath = foundPath
+		}
+	}
+	if a.profilePath == "" {
+		return nil, nil
+	}
+	foundProfile, err := profile.UnmarshalProfile(a.profilePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load profile %s: %w", a.profilePath, err)
+	}
+
+	return foundProfile, nil
+}
+
 func (a *analyzeCommand) validateProviders(providers []string) error {
 	validProvs := []string{
 		util.JavaProvider,
@@ -616,6 +636,21 @@ func (a *analyzeCommand) ListAllProviders() {
 	for _, prov := range supportedProvsContainerless {
 		fmt.Fprintln(os.Stdout, prov)
 	}
+}
+
+// parseLabelLines splits container output into label lines, trimming whitespace
+// and skipping empty lines so comparison works across Docker/Podman
+func parseLabelLines(raw string) []string {
+	lines := strings.Split(raw, "\n")
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		s := strings.TrimSpace(line)
+		if s == "" {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
 }
 
 func (a *analyzeCommand) ListLabels(ctx context.Context) error {
@@ -808,14 +843,16 @@ func (a *analyzeCommand) getConfigVolumes() (map[string]string, error) {
 	// attempt to create a .m2 directory we can use to speed things a bit
 	// this will be shared between analyze and dep command containers
 	// TODO: when this is fixed on mac and windows for podman machine volume access remove this check.
-	if runtime.GOOS == "linux" {
-		m2Dir, err := os.MkdirTemp("", "m2-repo-")
-		if err != nil {
-			a.log.V(1).Error(err, "failed to create m2 repo", "dir", m2Dir)
-		} else {
-			settingsVols[m2Dir] = util.M2Dir
-			a.log.V(1).Info("created directory for maven repo", "dir", m2Dir)
-			a.tempDirs = append(a.tempDirs, m2Dir)
+	if _, hasJava := a.providersMap[util.JavaProvider]; hasJava {
+		if runtime.GOOS == "linux" {
+			m2Dir, err := os.MkdirTemp("", "m2-repo-")
+			if err != nil {
+				a.log.V(1).Error(err, "failed to create m2 repo", "dir", m2Dir)
+			} else {
+				settingsVols[m2Dir] = util.M2Dir
+				a.log.V(1).Info("created directory for maven repo", "dir", m2Dir)
+				a.tempDirs = append(a.tempDirs, m2Dir)
+			}
 		}
 	}
 
@@ -999,19 +1036,21 @@ func (a *analyzeCommand) RunProvidersHostNetwork(ctx context.Context, volName st
 		maps.Copy(volumes, vols)
 	}
 
-	// Add Maven cache volume for persistent dependency caching
+	// Only create Maven cache volume when Java provider is active.
 	// The maven-cache-volume maps to the host's ~/.m2/repository and persists
 	// across analysis runs to avoid re-downloading dependencies. This significantly
 	// improves performance for subsequent analyses. If volume creation fails or
 	// caching is disabled (KANTRA_SKIP_MAVEN_CACHE=true), we continue without
 	// caching (graceful degradation).
-	mavenCacheVolName, err := a.createMavenCacheVolume()
-	if err != nil {
-		a.log.V(1).Error(err, "failed to create maven cache volume, continuing without cache")
-	} else if mavenCacheVolName != "" {
-		mavenCacheDir := path.Join(util.M2Dir, "repository")
-		volumes[mavenCacheVolName] = mavenCacheDir
-		a.log.V(1).Info("mounted maven cache volume", "container_path", mavenCacheDir)
+	if _, hasJava := a.providersMap[util.JavaProvider]; hasJava {
+		mavenCacheVolName, err := a.createMavenCacheVolume()
+		if err != nil {
+			a.log.V(1).Error(err, "failed to create maven cache volume, continuing without cache")
+		} else if mavenCacheVolName != "" {
+			mavenCacheDir := path.Join(util.M2Dir, "repository")
+			volumes[mavenCacheVolName] = mavenCacheDir
+			a.log.V(1).Info("mounted maven cache volume", "container_path", mavenCacheDir)
+		}
 	}
 
 	for prov, init := range a.providersMap {
