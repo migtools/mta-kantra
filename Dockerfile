@@ -1,8 +1,8 @@
-ARG VERSION=latest
+ARG VERSION=release-0.9
 
 FROM registry.access.redhat.com/ubi9-minimal as rulesets
 
-ARG RULESETS_REF=main
+ARG RULESETS_REF=release-0.9
 RUN microdnf -y install git &&\
     git clone https://github.com/konveyor/rulesets -b ${RULESETS_REF} &&\
     git clone https://github.com/windup/windup-rulesets -b 6.3.1.Final
@@ -26,7 +26,7 @@ COPY cmd/ cmd/
 COPY pkg/ pkg/
 
 # Build
-ARG VERSION=latest
+ARG VERSION=release-0.9
 ARG BUILD_COMMIT
 ARG IMAGE=quay.io/konveyor/kantra
 ARG NAME=kantra
