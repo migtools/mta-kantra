@@ -4,9 +4,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/konveyor/analyzer-lsp/provider"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -16,126 +16,77 @@ func getTestLogger() logr.Logger {
 	return logr.Discard()
 }
 
-func TestJavaProvider_GetConfigVolume(t *testing.T) {
-	// Setup a temporary directory
-	tmpDir := t.TempDir()
-
+func TestJavaProvider_GetConfig_Container(t *testing.T) {
 	tests := []struct {
-		name                   string
-		configInput            ConfigInput
-		expectedProviderName   string
-		expectedMode           string
-		expectedAddress        string
-		expectedBundleLocation string
-		expectMavenSettings    bool
-		expectJvmMaxMem        bool
-		expectError            bool
+		name                string
+		opts                BaseOptions
+		mavenSettingsFile   string
+		jvmMaxMem           string
+		disableMavenSearch  bool
+		expectedMode        string
+		expectedAddress     string
+		expectMavenSettings bool
+		expectJvmMaxMem     bool
 	}{
 		{
-			name: "basic configuration with directory input",
-			configInput: ConfigInput{
-				Name:               "java",
-				IsFileInput:        false,
-				InputPath:          "/tmp/project",
-				OutputPath:         "/tmp/output",
-				Port:               12345,
-				Mode:               "source-only",
-				TmpDir:             tmpDir,
-				JavaBundleLocation: "/bundles/java",
-				DisableMavenSearch: false,
+			name: "basic configuration with address",
+			opts: BaseOptions{
+				Location:     "/opt/input/source",
+				AnalysisMode: "source-only",
+				Address:      "0.0.0.0:12345",
 			},
-			expectedProviderName:   "java",
-			expectedMode:           "source-only",
-			expectedAddress:        "0.0.0.0:12345",
-			expectedBundleLocation: "/bundles/java",
-			expectError:            false,
+			expectedMode:    "source-only",
+			expectedAddress: "0.0.0.0:12345",
 		},
 		{
-			name: "configuration with file input",
-			configInput: ConfigInput{
-				Name:               "java",
-				IsFileInput:        true,
-				InputPath:          "/tmp/project/app.jar",
-				OutputPath:         "/tmp/output",
-				Port:               54321,
-				Mode:               "full",
-				TmpDir:             tmpDir,
-				JavaBundleLocation: "/bundles/java",
-				DisableMavenSearch: true,
-				Log:                getTestLogger(),
+			name: "full analysis mode",
+			opts: BaseOptions{
+				Location:     "/opt/input/source/app.jar",
+				AnalysisMode: "full",
+				Address:      "0.0.0.0:54321",
 			},
-			expectedProviderName:   "java",
-			expectedMode:           "full",
-			expectedAddress:        "0.0.0.0:54321",
-			expectedBundleLocation: "/bundles/java",
-			expectError:            false,
+			disableMavenSearch: true,
+			expectedMode:       "full",
+			expectedAddress:    "0.0.0.0:54321",
 		},
 		{
-			name: "configuration with maven settings file",
-			configInput: ConfigInput{
-				Name:               "java",
-				IsFileInput:        false,
-				InputPath:          "/tmp/project",
-				OutputPath:         "/tmp/output",
-				Port:               12345,
-				Mode:               "source-only",
-				TmpDir:             tmpDir,
-				MavenSettingsFile:  createTempMavenSettings(t, tmpDir),
-				JavaBundleLocation: "/bundles/java",
-				DisableMavenSearch: false,
-				Log:                getTestLogger(),
+			name: "with maven settings",
+			opts: BaseOptions{
+				Location:     "/opt/input/source",
+				AnalysisMode: "source-only",
+				Address:      "0.0.0.0:12345",
 			},
-			expectedProviderName:   "java",
-			expectedMode:           "source-only",
-			expectedAddress:        "0.0.0.0:12345",
-			expectedBundleLocation: "/bundles/java",
-			expectMavenSettings:    true,
-			expectError:            false,
+			mavenSettingsFile:   "/opt/input/config/settings.xml",
+			expectedMode:        "source-only",
+			expectedAddress:     "0.0.0.0:12345",
+			expectMavenSettings: true,
 		},
 		{
-			name: "configuration with JVM max memory",
-			configInput: ConfigInput{
-				Name:               "java",
-				IsFileInput:        false,
-				InputPath:          "/tmp/project",
-				OutputPath:         "/tmp/output",
-				Port:               12345,
-				Mode:               "source-only",
-				TmpDir:             tmpDir,
-				JvmMaxMem:          "4096m",
-				JavaBundleLocation: "/bundles/java",
-				DisableMavenSearch: false,
+			name: "with JVM max memory",
+			opts: BaseOptions{
+				Location:     "/opt/input/source",
+				AnalysisMode: "source-only",
+				Address:      "0.0.0.0:12345",
 			},
-			expectedProviderName:   "java",
-			expectedMode:           "source-only",
-			expectedAddress:        "0.0.0.0:12345",
-			expectedBundleLocation: "/bundles/java",
-			expectJvmMaxMem:        true,
-			expectError:            false,
+			jvmMaxMem:       "4096m",
+			expectedMode:    "source-only",
+			expectedAddress: "0.0.0.0:12345",
+			expectJvmMaxMem: true,
 		},
 		{
-			name: "configuration with all optional parameters",
-			configInput: ConfigInput{
-				Name:               "java",
-				IsFileInput:        false,
-				InputPath:          "/tmp/project",
-				OutputPath:         "/tmp/output",
-				Port:               12345,
-				Mode:               "full",
-				TmpDir:             tmpDir,
-				MavenSettingsFile:  createTempMavenSettings(t, tmpDir),
-				JvmMaxMem:          "2048m",
-				JavaBundleLocation: "/bundles/java",
-				DisableMavenSearch: true,
-				Log:                getTestLogger(),
+			name: "with all optional parameters",
+			opts: BaseOptions{
+				Location:     "/opt/input/source",
+				AnalysisMode: "full",
+				Address:      "0.0.0.0:12345",
 			},
-			expectedProviderName:   "java",
-			expectedMode:           "full",
-			expectedAddress:        "0.0.0.0:12345",
-			expectedBundleLocation: "/bundles/java",
-			expectMavenSettings:    true,
-			expectJvmMaxMem:        true,
-			expectError:            false,
+			mavenSettingsFile:   "/opt/input/config/settings.xml",
+			jvmMaxMem:           "2048m",
+			disableMavenSearch:  true,
+			expectedMode:        "full",
+			expectedAddress:     "0.0.0.0:12345",
+			expectMavenSettings: true,
+			expectJvmMaxMem:     true,
 		},
 	}
 
@@ -143,72 +94,116 @@ func TestJavaProvider_GetConfigVolume(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			p := &JavaProvider{}
 
-			config, err := p.GetConfigVolume(tt.configInput)
-
-			if tt.expectError {
-				assert.Error(t, err)
-				return
-			}
-
+			config, err := p.GetConfig(ModeContainer, tt.opts, JavaOptions{
+				MavenSettingsFile:  tt.mavenSettingsFile,
+				JvmMaxMem:          tt.jvmMaxMem,
+				DisableMavenSearch: tt.disableMavenSearch,
+			})
 			require.NoError(t, err)
-			assert.Equal(t, tt.expectedProviderName, config.Name)
+
+			assert.Equal(t, "java", config.Name)
 			assert.Equal(t, tt.expectedAddress, config.Address)
 
 			require.Len(t, config.InitConfig, 1)
 			initConfig := config.InitConfig[0]
 			assert.Equal(t, tt.expectedMode, string(initConfig.AnalysisMode))
-			assert.Equal(t, tt.expectedBundleLocation, initConfig.ProviderSpecificConfig["bundles"])
-			assert.Equal(t, "/usr/local/etc/maven-index.txt", initConfig.ProviderSpecificConfig["mavenIndexPath"])
-			assert.Equal(t, "/usr/local/etc/maven.default.index", initConfig.ProviderSpecificConfig["depOpenSourceLabelsFile"])
-			assert.Equal(t, "/jdtls/bin/jdtls", initConfig.ProviderSpecificConfig["lspServerPath"])
-			assert.Equal(t, tt.configInput.DisableMavenSearch, initConfig.ProviderSpecificConfig["disableMavenSearch"])
+
+			// Container mode uses canonical paths
+			assert.Equal(t, ContainerJavaBundlePath, initConfig.ProviderSpecificConfig["bundles"])
+			assert.Equal(t, ContainerDepOpenSourceLabels, initConfig.ProviderSpecificConfig["depOpenSourceLabelsFile"])
+			assert.Equal(t, ContainerJDTLSPath, initConfig.ProviderSpecificConfig[provider.LspServerPathConfigKey])
 
 			if tt.expectMavenSettings {
-				assert.Contains(t, initConfig.ProviderSpecificConfig, "mavenSettingsFile")
-				assert.Contains(t, initConfig.ProviderSpecificConfig["mavenSettingsFile"], "settings.xml")
+				assert.Equal(t, tt.mavenSettingsFile, initConfig.ProviderSpecificConfig["mavenSettingsFile"])
 			}
 
 			if tt.expectJvmMaxMem {
-				assert.Equal(t, tt.configInput.JvmMaxMem, initConfig.ProviderSpecificConfig["jvmMaxMem"])
-			}
-
-			if !tt.configInput.IsFileInput {
-				// Check mount path for directory input
-				assert.Contains(t, initConfig.Location, "source")
-			} else {
-				// Check mount path for file input
-				assert.Contains(t, initConfig.Location, filepath.Base(tt.configInput.InputPath))
+				assert.Equal(t, tt.jvmMaxMem, initConfig.ProviderSpecificConfig["jvmMaxMem"])
 			}
 		})
 	}
 }
 
-func TestJavaProvider_GetConfigVolumeWithNonExistentMavenSettings(t *testing.T) {
-	tmpDir := t.TempDir()
-	nonExistentMavenSettings := filepath.Join(tmpDir, "nonexistent-settings.xml")
-
-	configInput := ConfigInput{
-		Name:               "java",
-		IsFileInput:        false,
-		InputPath:          "/tmp/project",
-		OutputPath:         "/tmp/output",
-		Port:               12345,
-		Mode:               "source-only",
-		TmpDir:             tmpDir,
-		MavenSettingsFile:  nonExistentMavenSettings,
-		JavaBundleLocation: "/bundles/java",
-		DisableMavenSearch: false,
-		Log:                getTestLogger(),
-	}
-
+func TestJavaProvider_GetConfig_ContainerBinaryPath(t *testing.T) {
+	// When no address is provided, container mode should set binary path
 	p := &JavaProvider{}
-	// CopyFileContents returns nil for non-existent files, so the check passes
-	// and the maven settings file is still added to config
-	config, err := p.GetConfigVolume(configInput)
+	config, err := p.GetConfig(ModeContainer, BaseOptions{
+		Location:     "/opt/input/source",
+		AnalysisMode: "source-only",
+	})
 	require.NoError(t, err)
-	// Even though the file doesn't exist, CopyFileContents returns nil
-	// so the config still includes mavenSettingsFile
-	assert.Contains(t, config.InitConfig[0].ProviderSpecificConfig, "mavenSettingsFile")
+
+	assert.Equal(t, ContainerJavaProviderBin, config.BinaryPath)
+	assert.Empty(t, config.Address)
+}
+
+func TestJavaProvider_GetConfig_Local(t *testing.T) {
+	kantraDir := "/home/user/.kantra"
+	p := &JavaProvider{}
+
+	config, err := p.GetConfig(ModeLocal, BaseOptions{
+		Location:     "/home/user/project",
+		AnalysisMode: "source-only",
+		KantraDir:    kantraDir,
+	}, JavaOptions{DisableMavenSearch: true})
+	require.NoError(t, err)
+
+	assert.Equal(t, kantraDir+"/java-external-provider", config.BinaryPath)
+	assert.Equal(t, "/home/user/project", config.InitConfig[0].Location)
+
+	psc := config.InitConfig[0].ProviderSpecificConfig
+	assert.Equal(t, kantraDir+ContainerJavaBundlePath, psc["bundles"])
+	assert.Equal(t, kantraDir+ContainerJDTLSPath, psc[provider.LspServerPathConfigKey])
+	assert.Equal(t, true, psc["disableMavenSearch"])
+	assert.Equal(t, true, psc["cleanExplodedBin"])
+}
+
+func TestJavaProvider_GetConfig_Network(t *testing.T) {
+	p := &JavaProvider{}
+
+	config, err := p.GetConfig(ModeNetwork, BaseOptions{
+		Location: "/opt/input/source",
+		Address:  "localhost:12345",
+	}, JavaOptions{
+		MavenSettingsFile: "/opt/input/config/settings.xml",
+		JvmMaxMem:         "2048m",
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, "localhost:12345", config.Address)
+	assert.Empty(t, config.BinaryPath)
+
+	psc := config.InitConfig[0].ProviderSpecificConfig
+	assert.Equal(t, ContainerJDTLSPath, psc[provider.LspServerPathConfigKey])
+	assert.Equal(t, ContainerJavaBundlePath, psc["bundles"])
+	assert.Equal(t, ContainerMavenIndexPath, psc["mavenIndexPath"])
+	assert.Equal(t, "/opt/input/config/settings.xml", psc["mavenSettingsFile"])
+	assert.Equal(t, "2048m", psc["jvmMaxMem"])
+}
+
+func TestJavaProvider_GetConfig_FileInputLocation(t *testing.T) {
+	p := &JavaProvider{}
+	config, err := p.GetConfig(ModeContainer, BaseOptions{
+		Location:     "/opt/input/source/myapp.jar",
+		AnalysisMode: "full",
+		Address:      "0.0.0.0:12345",
+	})
+	require.NoError(t, err)
+
+	// Location should be exactly what was passed
+	assert.Equal(t, "/opt/input/source/myapp.jar", config.InitConfig[0].Location)
+}
+
+func TestJavaProvider_GetConfig_DirectoryInputLocation(t *testing.T) {
+	p := &JavaProvider{}
+	config, err := p.GetConfig(ModeContainer, BaseOptions{
+		Location:     "/opt/input/source",
+		AnalysisMode: "source-only",
+		Address:      "0.0.0.0:12345",
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, "/opt/input/source", config.InitConfig[0].Location)
 }
 
 func TestWalkJavaPathForTarget(t *testing.T) {
@@ -304,184 +299,12 @@ func TestWalkJavaPathForTargetWithFileInput(t *testing.T) {
 
 	targetPaths, err := WalkJavaPathForTarget(logger, true, binaryFile)
 	require.NoError(t, err)
-	assert.NotEmpty(t, targetPaths)
+	assert.Empty(t, targetPaths)
 }
 
 func TestWalkJavaPathForTargetWithNonexistentDir(t *testing.T) {
 	logger := getTestLogger()
 	_, err := WalkJavaPathForTarget(logger, false, "/nonexistent/path")
-	assert.Error(t, err)
-}
-
-func TestGetJavaBinaryProjectDir(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	// Create directory structure
-	baseDir := filepath.Join(tmpDir, "base")
-	err := os.MkdirAll(baseDir, 0755)
-	require.NoError(t, err)
-
-	// Create directory with "java-project-" pattern
-	projectDir := filepath.Join(baseDir, "java-project-abc123")
-	err = os.MkdirAll(projectDir, 0755)
-	require.NoError(t, err)
-
-	// Test successful case
-	foundDir, err := GetJavaBinaryProjectDir(baseDir)
-	require.NoError(t, err)
-	assert.Equal(t, projectDir, foundDir)
-
-	// Test case where directory doesn't exist
-	_, err = GetJavaBinaryProjectDir("/nonexistent/path")
-	assert.Error(t, err)
-
-	// Test case where no matching directory exists
-	emptyDir := filepath.Join(tmpDir, "empty")
-	err = os.MkdirAll(emptyDir, 0755)
-	require.NoError(t, err)
-
-	foundDir, err = GetJavaBinaryProjectDir(emptyDir)
-	require.NoError(t, err)
-	assert.Empty(t, foundDir)
-}
-
-func TestWaitForTargetDir_ExistingTarget(t *testing.T) {
-	tmpDir := t.TempDir()
-	logger := getTestLogger()
-
-	// Create target directory immediately
-	targetDir := filepath.Join(tmpDir, "target")
-	err := os.MkdirAll(targetDir, 0755)
-	require.NoError(t, err)
-
-	// Should return immediately since target already exists
-	err = WaitForTargetDir(logger, tmpDir, 5*time.Second)
-	require.NoError(t, err)
-}
-
-func TestWaitForTargetDir_Timeout(t *testing.T) {
-	tmpDir := t.TempDir()
-	logger := getTestLogger()
-
-	// Don't create target directory
-	// Should timeout waiting for it
-	err := WaitForTargetDir(logger, tmpDir, 100*time.Millisecond)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "timeout")
-}
-
-func TestWaitForTargetDir_CreateTargetDuringWait(t *testing.T) {
-	tmpDir := t.TempDir()
-	logger := getTestLogger()
-
-	// Start a goroutine to create the target directory after a short delay
-	go func() {
-		time.Sleep(100 * time.Millisecond)
-		targetDir := filepath.Join(tmpDir, "target")
-		err := os.MkdirAll(targetDir, 0755)
-		require.NoError(t, err)
-	}()
-
-	// Should successfully detect the target directory once it's created
-	err := WaitForTargetDir(logger, tmpDir, 5*time.Second)
-	require.NoError(t, err)
-}
-
-func TestWaitForTargetDir_WithNonexistentPath(t *testing.T) {
-	logger := getTestLogger()
-	err := WaitForTargetDir(logger, "/nonexistent/path", 100*time.Millisecond)
-	// The initial Stat will fail, but it depends on the implementation
-	// This test is mostly to ensure we don't panic
-	t.Logf("Error for nonexistent path: %v", err)
-}
-
-func TestGetConfigVolume_FileInputUsesCorrectMountPath(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	p := &JavaProvider{}
-	configInput := ConfigInput{
-		Name:               "java",
-		IsFileInput:        true,
-		InputPath:          "/tmp/project/myapp.jar",
-		OutputPath:         "/tmp/output",
-		Port:               12345,
-		Mode:               "full",
-		TmpDir:             tmpDir,
-		JavaBundleLocation: "/bundles/java",
-		DisableMavenSearch: false,
-	}
-
-	config, err := p.GetConfigVolume(configInput)
-	require.NoError(t, err)
-
-	// For file input, the mount path should include the filename
-	assert.Contains(t, config.InitConfig[0].Location, "myapp.jar")
-}
-
-func TestGetConfigVolume_DirectoryInputUsesSourceMount(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	p := &JavaProvider{}
-	configInput := ConfigInput{
-		Name:               "java",
-		IsFileInput:        false,
-		InputPath:          "/tmp/project",
-		OutputPath:         "/tmp/output",
-		Port:               12345,
-		Mode:               "source-only",
-		TmpDir:             tmpDir,
-		JavaBundleLocation: "/bundles/java",
-		DisableMavenSearch: false,
-	}
-
-	config, err := p.GetConfigVolume(configInput)
-	require.NoError(t, err)
-
-	// For directory input, should use standard source mount path
-	assert.NotContains(t, config.InitConfig[0].Location, filepath.Base(configInput.InputPath))
-}
-
-// Helper function to create a temporary maven settings file
-func createTempMavenSettings(t *testing.T, tmpDir string) string {
-	settingsFile := filepath.Join(tmpDir, "settings.xml")
-	err := os.WriteFile(settingsFile, []byte(`<?xml version="1.0" encoding="UTF-8"?>
-<settings>
-  <profiles>
-    <profile>
-      <id>test-profile</id>
-    </profile>
-  </profiles>
-</settings>`), 0644)
-	require.NoError(t, err)
-	return settingsFile
-}
-
-func TestGetJavaBinaryProjectDir_MultipleProjects(t *testing.T) {
-	tmpDir := t.TempDir()
-
-	// Create multiple directories, only one with "java-project-" prefix
-	err := os.MkdirAll(filepath.Join(tmpDir, "other-project"), 0755)
-	require.NoError(t, err)
-
-	javaProjectDir := filepath.Join(tmpDir, "java-project-12345")
-	err = os.MkdirAll(javaProjectDir, 0755)
-	require.NoError(t, err)
-
-	foundDir, err := GetJavaBinaryProjectDir(tmpDir)
-	require.NoError(t, err)
-	assert.Equal(t, javaProjectDir, foundDir)
-}
-
-func TestWaitForTargetDir_InvalidPath(t *testing.T) {
-	logger := getTestLogger()
-
-	// Test with an invalid path (file instead of directory)
-	tmpFile := filepath.Join(t.TempDir(), "notadir")
-	err := os.WriteFile(tmpFile, []byte("content"), 0644)
-	require.NoError(t, err)
-
-	err = WaitForTargetDir(logger, tmpFile, 100*time.Millisecond)
-	// This should either error or timeout
 	assert.Error(t, err)
 }
 
@@ -511,24 +334,14 @@ func TestWalkJavaPathForTarget_FileInputNoProjectDir(t *testing.T) {
 	t.Logf("Error for file input with no project dir: %v", err)
 }
 
-// Test the provider-specific config keys are correctly set
-func TestGetConfigVolume_ProviderSpecificConfig(t *testing.T) {
-	tmpDir := t.TempDir()
-
+// Test the provider-specific config keys are correctly set for container mode
+func TestJavaProvider_GetConfig_ProviderSpecificConfig(t *testing.T) {
 	p := &JavaProvider{}
-	configInput := ConfigInput{
-		Name:               "java",
-		IsFileInput:        false,
-		InputPath:          "/tmp/project",
-		OutputPath:         "/tmp/output",
-		Port:               12345,
-		Mode:               "full",
-		TmpDir:             tmpDir,
-		JavaBundleLocation: "/custom/bundles",
-		DisableMavenSearch: true,
-	}
 
-	config, err := p.GetConfigVolume(configInput)
+	config, err := p.GetConfig(ModeContainer, BaseOptions{
+		Location:     "/opt/input/source",
+		AnalysisMode: "full",
+	}, JavaOptions{DisableMavenSearch: true})
 	require.NoError(t, err)
 
 	initConfig := config.InitConfig[0]
@@ -536,9 +349,22 @@ func TestGetConfigVolume_ProviderSpecificConfig(t *testing.T) {
 
 	// Verify all expected config keys are present
 	assert.Equal(t, "java", initConfig.ProviderSpecificConfig["lspServerName"])
-	assert.Equal(t, "/custom/bundles", initConfig.ProviderSpecificConfig["bundles"])
-	assert.Equal(t, "/usr/local/etc/maven-index.txt", initConfig.ProviderSpecificConfig["mavenIndexPath"])
-	assert.Equal(t, "/usr/local/etc/maven.default.index", initConfig.ProviderSpecificConfig["depOpenSourceLabelsFile"])
-	assert.Equal(t, "/jdtls/bin/jdtls", initConfig.ProviderSpecificConfig["lspServerPath"])
-	assert.Equal(t, true, initConfig.ProviderSpecificConfig["disableMavenSearch"])
+	assert.Equal(t, ContainerJavaBundlePath, initConfig.ProviderSpecificConfig["bundles"])
+	assert.Equal(t, ContainerDepOpenSourceLabels, initConfig.ProviderSpecificConfig["depOpenSourceLabelsFile"])
+	assert.Equal(t, ContainerJDTLSPath, initConfig.ProviderSpecificConfig[provider.LspServerPathConfigKey])
+}
+
+// Helper function to create a temporary maven settings file
+func createTempMavenSettings(t *testing.T, tmpDir string) string {
+	settingsFile := filepath.Join(tmpDir, "settings.xml")
+	err := os.WriteFile(settingsFile, []byte(`<?xml version="1.0" encoding="UTF-8"?>
+<settings>
+  <profiles>
+    <profile>
+      <id>test-profile</id>
+    </profile>
+  </profiles>
+</settings>`), 0644)
+	require.NoError(t, err)
+	return settingsFile
 }

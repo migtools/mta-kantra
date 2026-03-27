@@ -1,4 +1,4 @@
-package cmd
+package analyze
 
 import (
 	"context"
@@ -9,153 +9,11 @@ import (
 
 	"github.com/go-logr/logr"
 	kantraProvider "github.com/konveyor-ecosystem/kantra/pkg/provider"
-	"github.com/konveyor/analyzer-lsp/provider"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 // Use logr.Discard() for testing - it's the standard no-op logger
-
-func TestGradleSourcesTaskFileConfiguration(t *testing.T) {
-	a := analyzeCommand{}
-	a.AnalyzeCommandContext.kantraDir = "kantraDir"
-	configs, err := a.createProviderConfigsContainerless()
-	if err != nil {
-		t.Fail()
-	}
-
-	assert.NotEmpty(t, configs)
-	assert.Equal(t, configs[0].InitConfig[0].ProviderSpecificConfig["gradleSourcesTaskFile"], "kantraDir/task.gradle")
-}
-
-func TestMakeBuiltinProviderConfig(t *testing.T) {
-	tests := []struct {
-		name             string
-		input            string
-		mode             string
-		expectedName     string
-		expectedLocation string
-		expectedMode     provider.AnalysisMode
-	}{
-		{
-			name:             "basic builtin config",
-			input:            "/test/input",
-			mode:             "full",
-			expectedName:     "builtin",
-			expectedLocation: "/test/input",
-			expectedMode:     provider.AnalysisMode("full"),
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			a := analyzeCommand{
-				input: tt.input,
-				mode:  tt.mode,
-			}
-
-			config := a.makeBuiltinProviderConfig()
-
-			assert.Equal(t, tt.expectedName, config.Name)
-			require.Len(t, config.InitConfig, 1)
-			assert.Equal(t, tt.expectedLocation, config.InitConfig[0].Location)
-			assert.Equal(t, tt.expectedMode, config.InitConfig[0].AnalysisMode)
-
-			// Verify excludedDirs is not set (we rely on analyzer-lsp defaults)
-			_, exists := config.InitConfig[0].ProviderSpecificConfig["excludedDirs"]
-			assert.False(t, exists)
-		})
-	}
-}
-
-func TestMakeJavaProviderConfig(t *testing.T) {
-	tests := []struct {
-		name               string
-		input              string
-		mode               string
-		kantraDir          string
-		mavenSettingsFile  string
-		jvmMaxMem          string
-		disableMavenSearch bool
-		reqMap             map[string]string
-	}{
-		{
-			name:      "basic java config",
-			input:     "/test/input",
-			mode:      "full",
-			kantraDir: "/test/kantra",
-			reqMap: map[string]string{
-				"jdtls":  "/test/jdtls",
-				"bundle": "/test/bundle",
-			},
-		},
-		{
-			name:               "java config with maven settings",
-			input:              "/test/input",
-			mode:               "source-only",
-			kantraDir:          "/test/kantra",
-			mavenSettingsFile:  "/test/settings.xml",
-			jvmMaxMem:          "4g",
-			disableMavenSearch: true,
-			reqMap: map[string]string{
-				"jdtls":  "/test/jdtls",
-				"bundle": "/test/bundle",
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if tt.jvmMaxMem != "" {
-				Settings.JvmMaxMem = tt.jvmMaxMem
-				defer func() { Settings.JvmMaxMem = "" }() // cleanup
-			}
-
-			a := analyzeCommand{
-				input:              tt.input,
-				mode:               tt.mode,
-				mavenSettingsFile:  tt.mavenSettingsFile,
-				disableMavenSearch: tt.disableMavenSearch,
-			}
-			a.AnalyzeCommandContext.kantraDir = tt.kantraDir
-			a.AnalyzeCommandContext.reqMap = tt.reqMap
-
-			config := a.makeJavaProviderConfig()
-
-			assert.Equal(t, "java", config.Name)
-			assert.Equal(t, tt.reqMap["jdtls"], config.BinaryPath)
-			require.Len(t, config.InitConfig, 1)
-
-			initConfig := config.InitConfig[0]
-			assert.Equal(t, tt.input, initConfig.Location)
-			assert.Equal(t, provider.AnalysisMode(tt.mode), initConfig.AnalysisMode)
-
-			psc := initConfig.ProviderSpecificConfig
-			assert.Equal(t, true, psc["cleanExplodedBin"])
-			assert.Equal(t, "/test/kantra/fernflower.jar", psc["fernFlowerPath"])
-			assert.Equal(t, "java", psc["lspServerName"])
-			assert.Equal(t, tt.reqMap["bundle"], psc["bundles"])
-			assert.Equal(t, tt.reqMap["jdtls"], psc["lspServerPath"])
-			assert.Equal(t, "/test/kantra/maven.default.index", psc["depOpenSourceLabelsFile"])
-			assert.Equal(t, tt.disableMavenSearch, psc["disableMavenSearch"])
-			assert.Equal(t, "/test/kantra/task.gradle", psc["gradleSourcesTaskFile"])
-
-			if tt.mavenSettingsFile != "" {
-				assert.Equal(t, tt.mavenSettingsFile, psc["mavenSettingsFile"])
-			} else {
-				_, exists := psc["mavenSettingsFile"]
-				assert.False(t, exists)
-			}
-
-			if tt.jvmMaxMem != "" {
-				assert.Equal(t, tt.jvmMaxMem, psc["jvmMaxMem"])
-			} else {
-				_, exists := psc["jvmMaxMem"]
-				assert.False(t, exists)
-			}
-		})
-	}
-}
 
 func TestWalkJavaPathForTarget(t *testing.T) {
 	// Create a temporary directory for testing
@@ -943,162 +801,6 @@ func TestListLabelsContainerlessOutputFormat(t *testing.T) {
 	}
 }
 
-func TestValidateContainerlessInput(t *testing.T) {
-	log := logr.Discard()
-
-	currentDir, dirErr := os.Getwd()
-	require.NoError(t, dirErr)
-
-	tempDir, err := os.MkdirTemp("", "test-input-")
-	require.NoError(t, err)
-	defer os.RemoveAll(tempDir)
-
-	tmpKantraDir, err := os.MkdirTemp("", "test-kantra-")
-	require.NoError(t, err)
-	defer os.RemoveAll(tmpKantraDir)
-
-	requiredDirs := []string{
-		"rulesets",
-		"jdtls/java-analyzer-bundle/java-analyzer-bundle.core/target",
-		"jdtls/bin",
-	}
-	for _, dir := range requiredDirs {
-		err = os.MkdirAll(filepath.Join(tmpKantraDir, dir), 0755)
-		require.NoError(t, err)
-	}
-
-	requiredFiles := []string{
-		"fernflower.jar",
-		"jdtls/java-analyzer-bundle/java-analyzer-bundle.core/target/java-analyzer-bundle.core-1.0.0-SNAPSHOT.jar",
-		"jdtls/bin/jdtls",
-	}
-	for _, file := range requiredFiles {
-		f, err := os.Create(filepath.Join(tmpKantraDir, file))
-		require.NoError(t, err)
-		f.Close()
-	}
-
-	tests := []struct {
-		name        string
-		input       string
-		expectError bool
-		errorMsg    string
-		setupFunc   func() string
-		getwdSetup  func(*testing.T)
-		skipCheck   func() bool
-	}{
-		{
-			name:        "absolute path to current directory should fail",
-			expectError: true,
-			errorMsg:    "cannot be the current directory",
-			setupFunc: func() string {
-				return currentDir
-			},
-		},
-		{
-			name:        "relative path '.' should fail",
-			expectError: true,
-			errorMsg:    "cannot be the current directory",
-			setupFunc: func() string {
-				return "."
-			},
-		},
-		{
-			name:        "relative path './' should fail",
-			expectError: true,
-			errorMsg:    "cannot be the current directory",
-			setupFunc: func() string {
-				return "./"
-			},
-		},
-		{
-			name:        "absolute path to different directory should pass",
-			expectError: false,
-			setupFunc: func() string {
-				return tempDir
-			},
-		},
-		{
-			name:        "relative path to subdirectory should pass",
-			expectError: false,
-			setupFunc: func() string {
-				subDir := "test-subdir"
-				fullPath := filepath.Join(currentDir, subDir)
-				os.MkdirAll(fullPath, 0755)
-				return subDir
-			},
-		},
-		{
-			name:        "test Getwd() error",
-			expectError: true,
-			errorMsg:    "no such file or directory",
-			setupFunc: func() string {
-				return "/some/valid/path"
-			},
-			getwdSetup: func(t *testing.T) {
-				originalDir, err := os.Getwd()
-				require.NoError(t, err)
-				t.Cleanup(func() {
-					os.Chdir(originalDir)
-				})
-				tempTestDir, err := os.MkdirTemp("", "test-getwd-error-")
-				require.NoError(t, err)
-
-				err = os.Chdir(tempTestDir)
-				require.NoError(t, err)
-
-				err = os.Remove(tempTestDir)
-				require.NoError(t, err)
-			},
-			skipCheck: func() bool {
-				_, err := os.Getwd()
-				return err == nil
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if tt.getwdSetup != nil {
-				tt.getwdSetup(t)
-			}
-			if tt.skipCheck != nil && tt.skipCheck() {
-				t.Skipf("Skipping test %s", tt.name)
-				return
-			}
-
-			inputPath := tt.setupFunc()
-			a := &analyzeCommand{
-				input: inputPath,
-				AnalyzeCommandContext: AnalyzeCommandContext{
-					log:       log,
-					kantraDir: tmpKantraDir,
-				},
-			}
-
-			if tt.getwdSetup == nil {
-				if absPath, err := filepath.Abs(a.input); err == nil {
-					a.input = absPath
-				}
-			}
-
-			err := a.ValidateContainerless(context.Background())
-			if tt.expectError {
-				require.Error(t, err)
-				if tt.getwdSetup != nil {
-					assert.Error(t, err)
-				} else {
-					assert.Contains(t, err.Error(), tt.errorMsg)
-				}
-			} else {
-				if err != nil {
-					assert.NotContains(t, err.Error(), "cannot be the current directory")
-				}
-			}
-		})
-	}
-}
-
 func TestGenerateStaticReportSkipFlag(t *testing.T) {
 	log := logr.Discard()
 
@@ -1240,4 +942,153 @@ func sliceContains(slice []string, item string) bool {
 		}
 	}
 	return false
+}
+
+func TestGetStaticReportSrcPath(t *testing.T) {
+	tests := []struct {
+		name             string
+		staticReportPath string
+		kantraDir        string
+		expected         string
+	}{
+		{
+			name:             "uses default kantraDir when staticReportPath is empty",
+			staticReportPath: "",
+			kantraDir:        "/opt/kantra",
+			expected:         filepath.Join("/opt/kantra", "static-report"),
+		},
+		{
+			name:             "uses override when staticReportPath is set",
+			staticReportPath: "/custom/report/template",
+			kantraDir:        "/opt/kantra",
+			expected:         "/custom/report/template",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := &analyzeCommand{
+				staticReportPath: tt.staticReportPath,
+				AnalyzeCommandContext: AnalyzeCommandContext{
+					kantraDir: tt.kantraDir,
+				},
+			}
+			result := a.getStaticReportSrcPath()
+			assert.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestGenerateStaticReportWithCustomPath(t *testing.T) {
+	log := logr.Discard()
+
+	// Create a temporary custom static report template directory
+	customReportDir, err := os.MkdirTemp("", "custom-static-report-")
+	require.NoError(t, err)
+	defer os.RemoveAll(customReportDir)
+
+	// Create a minimal index.html in the custom report dir
+	err = os.WriteFile(filepath.Join(customReportDir, "index.html"), []byte("<html></html>"), 0644)
+	require.NoError(t, err)
+
+	// Create temporary output directory
+	tmpOutput, err := os.MkdirTemp("", "test-static-report-output-")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpOutput)
+
+	// Create minimal output.yaml and dependencies.yaml
+	err = os.WriteFile(filepath.Join(tmpOutput, "output.yaml"), []byte("[]"), 0644)
+	require.NoError(t, err)
+	err = os.WriteFile(filepath.Join(tmpOutput, "dependencies.yaml"), []byte("[]"), 0644)
+	require.NoError(t, err)
+
+	a := &analyzeCommand{
+		staticReportPath: customReportDir,
+		output:           tmpOutput,
+		input:            "/some/input",
+		AnalyzeCommandContext: AnalyzeCommandContext{
+			log:       log,
+			kantraDir: "/nonexistent/kantra/dir",
+		},
+	}
+
+	err = a.GenerateStaticReport(context.Background(), log)
+	assert.NoError(t, err)
+
+	// Verify the report was generated from the custom path
+	_, statErr := os.Stat(filepath.Join(tmpOutput, "static-report", "index.html"))
+	assert.NoError(t, statErr, "index.html should be copied from custom static report path")
+}
+
+func TestBuildStaticReportOutputUsesCustomPath(t *testing.T) {
+	// Create a custom report template directory with a test file
+	customReportDir, err := os.MkdirTemp("", "custom-report-template-")
+	require.NoError(t, err)
+	defer os.RemoveAll(customReportDir)
+
+	testContent := []byte("custom template content")
+	err = os.WriteFile(filepath.Join(customReportDir, "index.html"), testContent, 0644)
+	require.NoError(t, err)
+	err = os.WriteFile(filepath.Join(customReportDir, "style.css"), []byte("body{}"), 0644)
+	require.NoError(t, err)
+
+	// Create output directory
+	tmpOutput, err := os.MkdirTemp("", "test-report-output-")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpOutput)
+
+	a := &analyzeCommand{
+		staticReportPath: customReportDir,
+		output:           tmpOutput,
+		AnalyzeCommandContext: AnalyzeCommandContext{
+			log:       logr.Discard(),
+			kantraDir: "/nonexistent/should/not/be/used",
+		},
+	}
+
+	err = a.buildStaticReportOutput(context.Background(), nil)
+	assert.NoError(t, err)
+
+	// Verify files were copied from custom path
+	content, err := os.ReadFile(filepath.Join(tmpOutput, "static-report", "index.html"))
+	assert.NoError(t, err)
+	assert.Equal(t, testContent, content)
+
+	_, statErr := os.Stat(filepath.Join(tmpOutput, "static-report", "style.css"))
+	assert.NoError(t, statErr, "style.css should be copied from custom report dir")
+}
+
+func TestBuildStaticReportOutputUsesDefaultPath(t *testing.T) {
+	// Create a default kantraDir with static-report subdirectory
+	tmpKantraDir, err := os.MkdirTemp("", "test-kantra-dir-")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpKantraDir)
+
+	defaultReportDir := filepath.Join(tmpKantraDir, "static-report")
+	err = os.MkdirAll(defaultReportDir, 0755)
+	require.NoError(t, err)
+
+	defaultContent := []byte("default template")
+	err = os.WriteFile(filepath.Join(defaultReportDir, "index.html"), defaultContent, 0644)
+	require.NoError(t, err)
+
+	// Create output directory
+	tmpOutput, err := os.MkdirTemp("", "test-report-output-")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpOutput)
+
+	a := &analyzeCommand{
+		output: tmpOutput,
+		AnalyzeCommandContext: AnalyzeCommandContext{
+			log:       logr.Discard(),
+			kantraDir: tmpKantraDir,
+		},
+	}
+
+	err = a.buildStaticReportOutput(context.Background(), nil)
+	assert.NoError(t, err)
+
+	content, err := os.ReadFile(filepath.Join(tmpOutput, "static-report", "index.html"))
+	assert.NoError(t, err)
+	assert.Equal(t, defaultContent, content)
 }

@@ -1,39 +1,44 @@
 package provider
 
 import (
-	"fmt"
-
 	"github.com/konveyor-ecosystem/kantra/pkg/util"
 	"github.com/konveyor/analyzer-lsp/provider"
 )
 
 type PythonProvider struct {
-	config provider.Config
+	baseProvider
 }
 
-func (p *PythonProvider) GetConfigVolume(c ConfigInput) (provider.Config, error) {
-	providerSpecificConfig := map[string]interface{}{
-		"lspServerName":                 "generic",
-		"workspaceFolders":              []interface{}{fmt.Sprintf("file://%s", util.SourceMountPath)},
-		provider.LspServerPathConfigKey: "/usr/local/bin/pylsp",
+func (p *PythonProvider) Name() string {
+	return util.PythonProvider
+}
+
+func (p *PythonProvider) GetConfig(mode ExecutionMode, opts BaseOptions, extra ...ProviderOption) (provider.Config, error) {
+	switch mode {
+	case ModeContainer:
+		opts.BinaryPath = ContainerGenericProviderBin
 	}
 
-	if excludedDir := util.GetProfilesExcludedDir(c.InputPath, true); excludedDir != "" {
-		providerSpecificConfig["excludedDirs"] = []interface{}{excludedDir}
+	// Python defaults to source-only analysis
+	if opts.AnalysisMode == "" {
+		opts.AnalysisMode = string(provider.SourceOnlyAnalysisMode)
 	}
 
-	p.config = provider.Config{
-		Name:    util.PythonProvider,
-		Address: fmt.Sprintf("0.0.0.0:%v", c.Port),
-		InitConfig: []provider.InitConfig{
-			{
-				AnalysisMode:           provider.SourceOnlyAnalysisMode,
-				ProviderSpecificConfig: providerSpecificConfig,
-			},
-		},
+	cfg := NewBaseConfig(util.PythonProvider, mode, opts)
+	psc := cfg.InitConfig[0].ProviderSpecificConfig
+
+	switch mode {
+	case ModeContainer:
+		psc["lspServerName"] = "pylsp"
+		psc[provider.LspServerPathConfigKey] = ContainerPylspPath
+		psc["lspServerArgs"] = []string{}
+		psc["workspaceFolders"] = []string{}
+		psc["dependencyFolders"] = []string{}
+
+	case ModeNetwork:
+		psc["lspServerName"] = "pylsp"
+		psc[provider.LspServerPathConfigKey] = ContainerPylspPath
 	}
-	if len(c.DepsFolders) != 0 {
-		p.config.InitConfig[0].ProviderSpecificConfig["dependencyFolders"] = c.DepsFolders
-	}
-	return p.config, nil
+
+	return cfg, nil
 }
