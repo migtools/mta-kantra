@@ -1,4 +1,4 @@
-FROM registry.redhat.io/ubi9/go-toolset:1.24 AS builder
+FROM registry.redhat.io/ubi10/go-toolset:1.24 AS builder
 COPY --chown=1001:0 . /workspace
 WORKDIR /workspace
 
@@ -33,7 +33,7 @@ RUN CGO_ENABLED=0 GOOS=windows go build \
 -X 'github.com/konveyor-ecosystem/kantra/cmd.BuildCommit=$SOURCE_GIT_COMMIT'" \
  -a -o windows-mta-cli.exe main.go
 
-FROM registry.redhat.io/ubi9:latest AS rulesets
+FROM registry.redhat.io/ubi10:latest AS rulesets
 COPY --chown=1001:0 . /workspace
 
 # Need to import from all of these
