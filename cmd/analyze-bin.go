@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	kantraProvider "github.com/konveyor-ecosystem/kantra/pkg/provider"
 	"github.com/konveyor-ecosystem/kantra/pkg/util"
 
 	"github.com/bombsimon/logrusr/v3"
@@ -78,8 +79,31 @@ func renderProgressBar(percent int, current, total int, message string) {
 		percent, bar, current, total, message)
 }
 
+// setProxyEnvironment sets proxy environment variables in the current process
+// from the CLI flags. This ensures all child processes (providers, language servers,
+// etc.) inherit the proxy settings. Sets both lower and upper case variants for
+// compatibility with different tools. Maven proxy is handled separately by
+// analyzer-lsp's Java provider which generates a settings.xml with <proxies>.
+func (a *analyzeCommand) setProxyEnvironment() {
+	proxyVars := map[string]string{
+		"http_proxy":  a.httpProxy,
+		"HTTP_PROXY":  a.httpProxy,
+		"https_proxy": a.httpsProxy,
+		"HTTPS_PROXY": a.httpsProxy,
+		"no_proxy":    a.noProxy,
+		"NO_PROXY":    a.noProxy,
+	}
+	for env, value := range proxyVars {
+		if value != "" {
+			os.Setenv(env, value)
+		}
+	}
+}
+
 func (a *analyzeCommand) RunAnalysisContainerless(ctx context.Context) error {
 	startTotal := time.Now()
+
+	a.setProxyEnvironment()
 
 	// Create progress mode to encapsulate progress reporting behavior
 	progressMode := NewProgressMode(a.noProgress)
@@ -121,6 +145,13 @@ func (a *analyzeCommand) RunAnalysisContainerless(ctx context.Context) error {
 		a.reqMap = make(map[string]string)
 	}
 
+	isBinaryAnalysis := false
+	if a.isFileInput {
+		ext := filepath.Ext(a.input)
+		isBinaryAnalysis = (ext == util.JavaArchive || ext == util.WebArchive ||
+			ext == util.EnterpriseArchive || ext == util.ClassFile)
+	}
+
 	defer os.Remove(filepath.Join(a.output, "settings.json"))
 
 	analysisLogFilePath := filepath.Join(a.output, "analysis.log")
@@ -130,10 +161,16 @@ func (a *analyzeCommand) RunAnalysisContainerless(ctx context.Context) error {
 	}
 	defer analysisLog.Close()
 
-	// clean jdtls dirs after analysis
+	// clean jdtls dirs and decompiled java-project after analysis
 	defer func() {
 		if err := a.cleanlsDirs(); err != nil {
 			a.log.Error(err, "failed to clean language server directories")
+		}
+		if isBinaryAnalysis {
+			javaProjectDir := filepath.Join(filepath.Dir(a.input), "java-project")
+			if err := os.RemoveAll(javaProjectDir); err != nil {
+				a.log.V(1).Error(err, "failed to remove decompiled java-project directory", "dir", javaProjectDir)
+			}
 		}
 	}()
 
@@ -156,14 +193,6 @@ func (a *analyzeCommand) RunAnalysisContainerless(ctx context.Context) error {
 	logrusErrLog := logrus.New()
 	logrusErrLog.SetOutput(os.Stderr)
 	errLog := logrusr.New(logrusErrLog)
-
-	// Detect if this is binary analysis based on file extension
-	isBinaryAnalysis := false
-	if a.isFileInput {
-		ext := filepath.Ext(a.input)
-		isBinaryAnalysis = (ext == util.JavaArchive || ext == util.WebArchive ||
-			ext == util.EnterpriseArchive || ext == util.ClassFile)
-	}
 
 	if isBinaryAnalysis {
 		progressMode.Printf("Running binary analysis...\n")
@@ -324,6 +353,13 @@ func (a *analyzeCommand) RunAnalysisContainerless(ctx context.Context) error {
 		wg.Add(1)
 
 		operationalLog.Info("running dependency analysis")
+		// For Java binaries, block until the decompiled project exists
+		if a.isFileInput && isBinaryAnalysis {
+			a.log.Info("waiting for decompiled Java project before dependency analysis")
+			if _, err := kantraProvider.WalkJavaPathForTarget(a.log, a.isFileInput, a.input); err != nil {
+				a.log.Error(err, "error waiting for decompiled Java project before dependency analysis")
+			}
+		}
 		go a.DependencyOutputContainerless(depCtx, providers, "dependencies.yaml", wg)
 	}
 
@@ -747,6 +783,18 @@ func (a *analyzeCommand) setupJavaProvider(ctx context.Context, analysisLog logr
 	}
 	initSpan.End()
 
+	// after binary decompilation, use java-project for URI
+	if a.isFileInput {
+		ext := filepath.Ext(a.input)
+		switch ext {
+		case util.JavaArchive, util.WebArchive, util.EnterpriseArchive, util.ClassFile:
+			decomp := filepath.Join(filepath.Dir(a.input), "java-project")
+			if st, statErr := os.Stat(decomp); statErr == nil && st.IsDir() {
+				providerLocations = []string{decomp}
+			}
+		}
+	}
+
 	return javaProvider, providerLocations, additionalBuiltinConfs, nil
 }
 
@@ -858,27 +906,37 @@ func (a *analyzeCommand) startProvidersContainerless(ctx context.Context, needPr
 func (a *analyzeCommand) DependencyOutputContainerless(ctx context.Context, providers map[string]provider.InternalProviderClient, depOutputFile string, wg *sync.WaitGroup) {
 	defer wg.Done()
 	var depsFlat []konveyor.DepsFlatItem
-	var depsTree []konveyor.DepsTreeItem
 	var err error
 
-	for _, prov := range providers {
+	providerNames := make([]string, 0, len(providers))
+	for name := range providers {
+		providerNames = append(providerNames, name)
+	}
+	sort.Strings(providerNames)
+
+	for _, name := range providerNames {
+		prov := providers[name]
+		if !provider.HasCapability(prov.Capabilities(), "dependency") {
+			a.log.Info("provider does not have dependency capability", "provider", name)
+			continue
+		}
 		deps, err := prov.GetDependencies(ctx)
 		if err != nil {
-			a.log.Error(err, "failed to get list of dependencies for provider", "provider", "java")
+			a.log.Error(err, "failed to get list of dependencies for provider", "provider", name)
+			continue
 		}
 		for u, ds := range deps {
-			newDeps := ds
 			depsFlat = append(depsFlat, konveyor.DepsFlatItem{
-				Provider:     "java",
+				Provider:     name,
 				FileURI:      string(u),
-				Dependencies: newDeps,
+				Dependencies: ds,
 			})
 		}
+	}
 
-		if depsFlat == nil && depsTree == nil {
-			a.log.V(4).Info("did not get dependencies from all given providers")
-			return
-		}
+	if len(depsFlat) == 0 {
+		a.log.V(4).Info("did not get dependencies from any provider")
+		return
 	}
 
 	var by []byte
