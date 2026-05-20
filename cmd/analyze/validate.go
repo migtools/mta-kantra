@@ -13,11 +13,18 @@ import (
 
 	"github.com/konveyor-ecosystem/kantra/pkg/profile"
 	"github.com/konveyor-ecosystem/kantra/pkg/util"
+	hubapi "github.com/konveyor/tackle2-hub/shared/api"
 	"github.com/konveyor/analyzer-lsp/provider"
 	"github.com/spf13/cobra"
 )
 
-func (a *analyzeCommand) Validate(ctx context.Context, cmd *cobra.Command, foundProfile *profile.AnalysisProfile) error {
+func (a *analyzeCommand) Validate(ctx context.Context, cmd *cobra.Command, foundProfile *hubapi.AnalysisProfile) error {
+	parsedContainerRuntime, err := parseContainerRuntimeFlags(a.containerRuntimeFlags)
+	if err != nil {
+		return fmt.Errorf("invalid --container-runtime-flags: %w", err)
+	}
+	a.parsedContainerRuntime = parsedContainerRuntime
+
 	if a.listSources || a.listTargets || a.listProviders {
 		return nil
 	}
@@ -122,7 +129,7 @@ func (a *analyzeCommand) Validate(ctx context.Context, cmd *cobra.Command, found
 			a.isFileInput = true
 		}
 	}
-	err := a.CheckOverwriteOutput()
+	err = a.CheckOverwriteOutput()
 	if err != nil {
 		return err
 	}
@@ -214,7 +221,7 @@ func (a *analyzeCommand) CheckOverwriteOutput() error {
 	return nil
 }
 
-func (a *analyzeCommand) ValidateAndLoadProfile() (*profile.AnalysisProfile, error) {
+func (a *analyzeCommand) ValidateAndLoadProfile() (*hubapi.AnalysisProfile, error) {
 	if a.profileDir != "" {
 		stat, err := os.Stat(a.profileDir)
 		if err != nil {
@@ -252,7 +259,7 @@ func (a *analyzeCommand) ValidateAndLoadProfile() (*profile.AnalysisProfile, err
 	return foundProfile, nil
 }
 
-func (a *analyzeCommand) validateProviders(providers []string) error {
+func (a *analyzeCommand) validateProviders(providers []string, overrideNames map[string]bool) error {
 	validProvs := []string{
 		util.JavaProvider,
 		util.PythonProvider,
@@ -261,9 +268,13 @@ func (a *analyzeCommand) validateProviders(providers []string) error {
 		util.CsharpProvider,
 	}
 	for _, prov := range providers {
+		// providers defined in the override settings file are always valid
+		if overrideNames[prov] {
+			continue
+		}
 		//validate other providers
 		if !slices.Contains(validProvs, prov) {
-			return fmt.Errorf("provider %v not supported. Use --providerOverride or --provider option", prov)
+			return fmt.Errorf("provider %v not supported. Use --override-provider-settings or --provider option", prov)
 		}
 	}
 	return nil

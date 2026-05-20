@@ -1,34 +1,20 @@
 package util
 
 import (
-	"bufio"
 	"bytes"
-	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
 	"runtime"
-	"slices"
-	"sort"
 	"strings"
-
-	outputv1 "github.com/konveyor/analyzer-lsp/output/v1/konveyor"
-)
-
-// provider config options
-const (
-	MavenSettingsFile      = "mavenSettingsFile"
-	LspServerPath          = "lspServerPath"
-	LspServerName          = "lspServerName"
-	WorkspaceFolders       = "workspaceFolders"
-	DependencyProviderPath = "dependencyProviderPath"
 )
 
 var (
-	// TODO (pgaikwad): this assumes that the $USER in container is always root, it may not be the case in future
-	M2Dir = path.Join("/", "root", ".m2")
+	// MavenCacheDir is the container-internal directory for the Maven
+	// local repository cache. Mounted under /opt/input so it is
+	// accessible regardless of which user the container runs as.
+	MavenCacheDir = path.Join(InputPath, "maven-cache")
 	// SourceMountPath is the directory where source code is mounted in the container.
 	// This value must not be modified at runtime. Use analyzeCommand.sourceLocationPath
 	// for the resolved source location (which may include a filename for file inputs).
@@ -137,94 +123,6 @@ func LoadEnvInsensitive(variableName string) string {
 	} else {
 		return upperValue
 	}
-}
-
-func WalkRuleSets(root string, label string, labelsSlice *[]string) fs.WalkDirFunc {
-	return func(path string, d fs.DirEntry, err error) error {
-		if !d.IsDir() {
-			*labelsSlice, err = readRuleFile(path, labelsSlice, label)
-			if err != nil {
-				return err
-			}
-		}
-		return err
-	}
-}
-
-func readRuleFile(filePath string, labelsSlice *[]string, label string) ([]string, error) {
-	file, err := os.Open(filePath)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-	scanner.Split(bufio.ScanWords)
-
-	for scanner.Scan() {
-		// add source/target labels to slice
-		label := getSourceOrTargetLabel(scanner.Text(), label)
-		if len(label) > 0 && !slices.Contains(*labelsSlice, label) {
-			*labelsSlice = append(*labelsSlice, label)
-		}
-	}
-	if err := scanner.Err(); err != nil {
-		return nil, err
-	}
-	return *labelsSlice, nil
-}
-
-func getSourceOrTargetLabel(text string, label string) string {
-	if strings.Contains(text, label) {
-		return text
-	}
-	return ""
-}
-
-func ListOptionsFromLabels(sl []string, label string, out io.Writer) {
-	var newSl []string
-	l := label + "="
-
-	for _, label := range sl {
-		newSt := strings.TrimPrefix(label, l)
-
-		if newSt != label {
-			newSt = strings.TrimSuffix(newSt, "+")
-			newSt = strings.TrimSuffix(newSt, "-")
-
-			if !slices.Contains(newSl, newSt) {
-				newSl = append(newSl, newSt)
-
-			}
-		}
-	}
-	sort.Strings(newSl)
-
-	if label == outputv1.SourceTechnologyLabel {
-		fmt.Fprintln(out, "available source technologies:")
-	} else {
-		fmt.Fprintln(out, "available target technologies:")
-	}
-	for _, tech := range newSl {
-		fmt.Fprintln(out, tech)
-	}
-}
-
-const ProfilesPath = ".konveyor/profiles"
-
-// GetProfilesExcludedDir returns the profiles exclusion path if a .konveyor/profiles
-// directory exists under inputPath. When useContainerPath is true, containerSourceDir
-// is used as the base for the returned path (e.g. /opt/input/source). When false,
-// the local filesystem path is returned and containerSourceDir is ignored.
-func GetProfilesExcludedDir(inputPath string, containerSourceDir string, useContainerPath bool) string {
-	profilesDir := filepath.Join(inputPath, ProfilesPath)
-	if _, err := os.Stat(profilesDir); err == nil {
-		if useContainerPath {
-			return path.Join(containerSourceDir, ProfilesPath)
-		}
-		return profilesDir
-	}
-	return ""
 }
 
 // KantraDirEnv is the environment variable that can override the kantra directory

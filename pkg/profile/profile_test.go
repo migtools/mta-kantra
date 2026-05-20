@@ -9,6 +9,7 @@ import (
 	"github.com/go-logr/logr"
 	outputv1 "github.com/konveyor/analyzer-lsp/output/v1/konveyor"
 	"github.com/konveyor/analyzer-lsp/provider"
+	hubapi "github.com/konveyor/tackle2-hub/shared/api"
 	"github.com/spf13/cobra"
 )
 
@@ -17,7 +18,7 @@ func TestUnmarshalProfile(t *testing.T) {
 		name        string
 		profileDir  string
 		setupFunc   func() (string, func(), error)
-		wantProfile *AnalysisProfile
+		wantProfile *hubapi.AnalysisProfile
 		wantErr     bool
 		errMsg      string
 	}{
@@ -59,16 +60,16 @@ rules:
 				cleanup := func() { os.RemoveAll(tmpDir) }
 				return profilePath, cleanup, nil
 			},
-			wantProfile: &AnalysisProfile{
-				Mode: AnalysisMode{WithDeps: true},
-				Scope: AnalysisScope{
+			wantProfile: &hubapi.AnalysisProfile{
+				Mode: hubapi.ApMode{WithDeps: true},
+				Scope: hubapi.ApScope{
 					WithKnownLibs: true,
-					Packages: PackageSelector{
+					Packages: hubapi.InExList{
 						Included: []string{"com.example"},
 					},
 				},
-				Rules: AnalysisRules{
-					Labels: LabelSelector{
+				Rules: hubapi.ApRules{
+					Labels: hubapi.InExList{
 						Included: []string{"test-label"},
 					},
 				},
@@ -112,19 +113,19 @@ rules:
 				cleanup := func() { os.RemoveAll(tmpDir) }
 				return profilePath, cleanup, nil
 			},
-			wantProfile: &AnalysisProfile{
-				ID:   123,
-				Name: "Complete Profile",
-				Mode: AnalysisMode{WithDeps: false},
-				Scope: AnalysisScope{
+			wantProfile: &hubapi.AnalysisProfile{
+				Resource: hubapi.Resource{ID: 123},
+				Name:     "Complete Profile",
+				Mode:     hubapi.ApMode{WithDeps: false},
+				Scope: hubapi.ApScope{
 					WithKnownLibs: false,
-					Packages: PackageSelector{
+					Packages: hubapi.InExList{
 						Included: []string{"com.example.included"},
 						Excluded: []string{"com.example.excluded"},
 					},
 				},
-				Rules: AnalysisRules{
-					Labels: LabelSelector{
+				Rules: hubapi.ApRules{
+					Labels: hubapi.InExList{
 						Included: []string{"included-label"},
 						Excluded: []string{"excluded-label"},
 					},
@@ -150,7 +151,7 @@ rules:
 				cleanup := func() { os.RemoveAll(tmpDir) }
 				return profilePath, cleanup, nil
 			},
-			wantProfile: &AnalysisProfile{},
+			wantProfile: &hubapi.AnalysisProfile{},
 			wantErr:     false,
 		},
 		{
@@ -175,8 +176,8 @@ mode:
 				cleanup := func() { os.RemoveAll(tmpDir) }
 				return profilePath, cleanup, nil
 			},
-			wantProfile: &AnalysisProfile{
-				Mode: AnalysisMode{WithDeps: true},
+			wantProfile: &hubapi.AnalysisProfile{
+				Mode: hubapi.ApMode{WithDeps: true},
 			},
 			wantErr: false,
 		},
@@ -694,6 +695,97 @@ func TestSetSettingsFromProfile_EnableDefaultRulesets(t *testing.T) {
 	}
 }
 
+func TestSetSettingsFromProfile_SourceTargetOverrideProfileKonveyorLabels(t *testing.T) {
+	makeProfileWithKonveyorPath := func(t *testing.T, profileYAML string) (profilePath string, cleanup func()) {
+		t.Helper()
+		tmpDir, err := os.MkdirTemp("", "test-profile-")
+		if err != nil {
+			t.Fatalf("MkdirTemp: %v", err)
+		}
+		konveyorDir := filepath.Join(tmpDir, "app", ".konveyor", "profiles", "p")
+		if err := os.MkdirAll(konveyorDir, 0755); err != nil {
+			os.RemoveAll(tmpDir)
+			t.Fatalf("MkdirAll: %v", err)
+		}
+		profilePath = filepath.Join(konveyorDir, "profile.yaml")
+		if err := os.WriteFile(profilePath, []byte(profileYAML), 0644); err != nil {
+			os.RemoveAll(tmpDir)
+			t.Fatalf("WriteFile: %v", err)
+		}
+		return profilePath, func() { os.RemoveAll(tmpDir) }
+	}
+
+	makeCmd := func() *cobra.Command {
+		cmd := &cobra.Command{}
+		cmd.Flags().String("input", "", "")
+		cmd.Flags().String("mode", "", "")
+		cmd.Flags().Bool("analyze-known-libraries", false, "")
+		cmd.Flags().String("incident-selector", "", "")
+		cmd.Flags().String("label-selector", "", "")
+		cmd.Flags().StringSlice("rules", nil, "")
+		cmd.Flags().Bool("enable-default-rulesets", true, "")
+		cmd.Flags().StringArray("source", []string{}, "")
+		cmd.Flags().StringArray("target", []string{}, "")
+		return cmd
+	}
+
+	t.Run("target flag removes profile konveyor target labels", func(t *testing.T) {
+		profilePath, cleanup := makeProfileWithKonveyorPath(t, `
+mode: {}
+rules:
+  labels:
+    included:
+      - "konveyor.io/target=eap7"
+      - "konveyor.io/target=eap8"
+      - "hibernate"
+`)
+		defer cleanup()
+
+		cmd := makeCmd()
+		_ = cmd.Flags().Set("target", "eap9")
+		cmd.Flags().Lookup("target").Changed = true
+
+		settings := &ProfileSettings{EnableDefaultRulesets: true}
+		if err := SetSettingsFromProfile(profilePath, cmd, settings); err != nil {
+			t.Fatalf("SetSettingsFromProfile: %v", err)
+		}
+		if settings.LabelSelector != "(hibernate)" {
+			t.Fatalf("LabelSelector = %q, want %q", settings.LabelSelector, "(hibernate)")
+		}
+	})
+
+	t.Run("source and target flags remove all profile konveyor source/target labels", func(t *testing.T) {
+		profilePath, cleanup := makeProfileWithKonveyorPath(t, `
+mode: {}
+rules:
+  labels:
+    included:
+      - "konveyor.io/source=weblogic"
+      - "konveyor.io/target=eap7"
+      - "configuration"
+    excluded:
+      - "konveyor.io/source=springboot"
+      - "konveyor.io/target=eap8"
+      - "deprecated"
+`)
+		defer cleanup()
+
+		cmd := makeCmd()
+		_ = cmd.Flags().Set("source", "quarkus")
+		_ = cmd.Flags().Set("target", "eap9")
+		cmd.Flags().Lookup("source").Changed = true
+		cmd.Flags().Lookup("target").Changed = true
+
+		settings := &ProfileSettings{EnableDefaultRulesets: true}
+		if err := SetSettingsFromProfile(profilePath, cmd, settings); err != nil {
+			t.Fatalf("SetSettingsFromProfile: %v", err)
+		}
+		if settings.LabelSelector != "(configuration) && !deprecated" {
+			t.Fatalf("LabelSelector = %q, want %q", settings.LabelSelector, "(configuration) && !deprecated")
+		}
+	})
+}
+
 func TestGetRulesInProfile(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -1172,7 +1264,7 @@ func TestUnmarshalProfile_Comprehensive(t *testing.T) {
 	tests := []struct {
 		name        string
 		setupFunc   func() (string, func(), error)
-		wantProfile *AnalysisProfile
+		wantProfile *hubapi.AnalysisProfile
 		wantErr     bool
 		errMsg      string
 	}{
@@ -1208,7 +1300,7 @@ rules:
 
 				return profilePath, func() { os.RemoveAll(tmpDir) }, nil
 			},
-			wantProfile: &AnalysisProfile{
+			wantProfile: &hubapi.AnalysisProfile{
 				Name: "Test Profile",
 			},
 			wantErr: false,

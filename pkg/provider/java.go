@@ -42,6 +42,9 @@ func (p *JavaProvider) GetConfig(mode ExecutionMode, opts BaseOptions, extra ...
 		psc["bundles"] = ContainerJavaBundlePath
 		psc["depOpenSourceLabelsFile"] = ContainerDepOpenSourceLabels
 		psc[provider.LspServerPathConfigKey] = ContainerJDTLSPath
+		if javaOpts.MavenCacheDir != "" {
+			psc["mavenCacheDir"] = javaOpts.MavenCacheDir
+		}
 
 	case ModeLocal:
 		kantraDir := opts.KantraDir
@@ -61,6 +64,9 @@ func (p *JavaProvider) GetConfig(mode ExecutionMode, opts BaseOptions, extra ...
 		psc["bundles"] = ContainerJavaBundlePath
 		psc["mavenIndexPath"] = ContainerMavenIndexPath
 		psc["depOpenSourceLabelsFile"] = ContainerDepOpenSourceLabels
+		if javaOpts.MavenCacheDir != "" {
+			psc["mavenCacheDir"] = javaOpts.MavenCacheDir
+		}
 	}
 
 	// Apply Java-specific overrides from options

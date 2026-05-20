@@ -12,11 +12,13 @@ import (
 	"github.com/bombsimon/logrusr/v3"
 	"github.com/konveyor-ecosystem/kantra/cmd/internal/settings"
 	kantraprovider "github.com/konveyor-ecosystem/kantra/pkg/provider"
+	"github.com/konveyor-ecosystem/kantra/pkg/profile"
 	"github.com/konveyor-ecosystem/kantra/pkg/util"
 	konveyorAnalyzer "github.com/konveyor/analyzer-lsp/core"
 	"github.com/konveyor/analyzer-lsp/provider"
 	"github.com/konveyor/analyzer-lsp/tracing"
 	"github.com/sirupsen/logrus"
+	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v2"
 )
 
@@ -42,6 +44,7 @@ import (
 //  13. Post-analysis (e.g., provider log collection)
 //  14. Output writing (YAML, JSON, static report)
 //  15. Results summary
+//
 // setProxyEnvironment sets proxy environment variables in the current process
 // from the CLI flags. This ensures all child processes (providers, language servers,
 // etc.) inherit the proxy settings. Sets both lower and upper case variants for
@@ -63,7 +66,7 @@ func (a *analyzeCommand) setProxyEnvironment() {
 	}
 }
 
-func (a *analyzeCommand) runAnalysis(ctx context.Context, mode kantraprovider.ExecutionMode, foundProviders []string) error {
+func (a *analyzeCommand) runAnalysis(ctx context.Context, cmd *cobra.Command, mode kantraprovider.ExecutionMode, foundProviders []string) error {
 	restoreStderr := util.InstallStderrFilter()
 	defer restoreStderr()
 
@@ -149,11 +152,13 @@ func (a *analyzeCommand) runAnalysis(ctx context.Context, mode kantraprovider.Ex
 		Log:                   a.log,
 		KantraDir:             a.kantraDir,
 		DisableMavenSearch:    a.disableMavenSearch,
+		ExternalOnly:          a.externalOnly,
+		EnableDefaultRulesets: a.enableDefaultRulesets,
 		Providers:             buildProviderInfos(foundProviders),
 		ContainerBinary:       settings.Settings.ContainerBinary,
+		ContainerRuntimeArgs:  a.containerRuntimeArgs(),
 		RunnerImage:           settings.Settings.RunnerImage,
 		OutputDir:             a.output,
-		EnableDefaultRulesets: a.enableDefaultRulesets,
 		LogLevel:              a.logLevel,
 		Cleanup:               a.cleanup,
 		DepFolders:            a.depFolders,
@@ -170,7 +175,7 @@ func (a *analyzeCommand) runAnalysis(ctx context.Context, mode kantraprovider.Ex
 	providerConfigs := env.ProviderConfigs()
 
 	// Apply excludedDirs from profile settings
-	if excludedDir := util.GetProfilesExcludedDir(a.input, "", false); excludedDir != "" {
+	if excludedDir := profile.GetProfilesExcludedDir(a.input, "", false); excludedDir != "" {
 		for i := range providerConfigs {
 			if len(providerConfigs[i].InitConfig) > 0 {
 				if providerConfigs[i].InitConfig[0].ProviderSpecificConfig == nil {
@@ -181,12 +186,18 @@ func (a *analyzeCommand) runAnalysis(ctx context.Context, mode kantraprovider.Ex
 		}
 	}
 
-	overrideConfigs, err := a.loadOverrideProviderSettings()
-	if err != nil {
-		return fmt.Errorf("failed to load override provider settings: %w", err)
+	// Reuse override configs loaded early in RunE (for mode selection).
+	// If not loaded yet (e.g., called from a different path), load now.
+	overrideConfigs := a.parsedOverrideConfigs
+	if overrideConfigs == nil && a.overrideProviderSettings != "" {
+		var loadErr error
+		overrideConfigs, loadErr = a.loadOverrideProviderSettings()
+		if loadErr != nil {
+			return fmt.Errorf("failed to load override provider settings: %w", loadErr)
+		}
 	}
 	if overrideConfigs != nil {
-		operationalLog.Info("loaded override provider settings", "file", a.overrideProviderSettings, "providers", len(overrideConfigs))
+		operationalLog.Info("applying override provider settings", "file", a.overrideProviderSettings, "providers", len(overrideConfigs))
 		providerConfigs = applyAllProviderOverrides(providerConfigs, overrideConfigs)
 	}
 
@@ -197,7 +208,7 @@ func (a *analyzeCommand) runAnalysis(ctx context.Context, mode kantraprovider.Ex
 	}
 
 	// --- Label selectors ---
-	labelSelector := a.getLabelSelector()
+	labelSelector := a.getLabelSelector(cmd)
 	depLabelSelector := ""
 	if !a.analyzeKnownLibraries {
 		depLabelSelector = fmt.Sprintf("!%v=open-source", provider.DepSourceLabel)
@@ -356,7 +367,9 @@ func (a *analyzeCommand) runAnalysis(ctx context.Context, mode kantraprovider.Ex
 	// Print results summary
 	progressMode.Println("\nResults:")
 	reportPath := filepath.Join(a.output, "static-report", "index.html")
-	progressMode.Printf("  Report: file://%s\n", reportPath)
+	if !a.skipStaticReport {
+		progressMode.Printf("  Report: file://%s\n", reportPath)
+	}
 	analysisLogPath := filepath.Join(a.output, "analysis.log")
 	progressMode.Printf("  Analysis logs: %s\n", analysisLogPath)
 

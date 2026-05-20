@@ -6,16 +6,43 @@ import (
 	"os"
 	"strings"
 
+	"github.com/konveyor-ecosystem/kantra/pkg/util"
 	outputv1 "github.com/konveyor/analyzer-lsp/output/v1/konveyor"
 	"github.com/konveyor/analyzer-lsp/provider"
+	"github.com/spf13/cobra"
 )
 
-func (a *analyzeCommand) getLabelSelector() string {
+func labelSelectorSetFromCLI(cmd *cobra.Command) bool {
+	if cmd == nil {
+		return false
+	}
+	f := cmd.Flags().Lookup("label-selector")
+	if f == nil {
+		return false
+	}
+	return f.Changed
+}
+
+func (a *analyzeCommand) getLabelSelector(cmd *cobra.Command) string {
+	if labelSelectorSetFromCLI(cmd) && a.labelSelector != "" {
+		return a.labelSelector
+	}
+	hasSourceOrTarget := len(a.sources) > 0 || len(a.targets) > 0
+	if hasSourceOrTarget {
+		cliExpr := a.labelSelectorFromSourcesTargets()
+		if a.profilePath != "" && a.labelSelector != "" && !labelSelectorSetFromCLI(cmd) {
+			return fmt.Sprintf("(%s) && (%s)", cliExpr, a.labelSelector)
+		}
+		return cliExpr
+	}
 	if a.labelSelector != "" {
 		return a.labelSelector
 	}
-	if (a.sources == nil || len(a.sources) == 0) &&
-		(a.targets == nil || len(a.targets) == 0) {
+	return ""
+}
+
+func (a *analyzeCommand) labelSelectorFromSourcesTargets() string {
+	if len(a.sources) == 0 && len(a.targets) == 0 {
 		return ""
 	}
 	// default labels are applied everytime either a source or target is specified
@@ -43,12 +70,11 @@ func (a *analyzeCommand) getLabelSelector() string {
 			// when both targets and sources are present, AND them
 			return fmt.Sprintf("(%s && %s) || (%s)",
 				targetExpr, sourceExpr, strings.Join(defaultLabels, " || "))
-		} else {
-			// when target is specified, but source is not
-			// return target expression OR'd with default labels
-			return fmt.Sprintf("%s || (%s)",
-				targetExpr, strings.Join(defaultLabels, " || "))
 		}
+		// when target is specified, but source is not
+		// return target expression OR'd with default labels
+		return fmt.Sprintf("%s || (%s)",
+			targetExpr, strings.Join(defaultLabels, " || "))
 	}
 	if sourceExpr != "" {
 		// when only source is specified, OR them all
@@ -98,6 +124,74 @@ func mergeProviderSpecificConfig(base, override map[string]interface{}) map[stri
 		result[k] = v
 	}
 	return result
+}
+
+// externalProviderNames returns the names of providers in the override configs
+// that have an Address set, indicating they are externally managed by the user.
+// These providers don't need kantra to start any infrastructure for them.
+func externalProviderNames(overrides []provider.Config) []string {
+	var names []string
+	for _, cfg := range overrides {
+		if cfg.Address != "" {
+			names = append(names, cfg.Name)
+		}
+	}
+	return names
+}
+
+// overrideProviderNameSet returns a set of all provider names in the override configs.
+func overrideProviderNameSet(overrides []provider.Config) map[string]bool {
+	names := make(map[string]bool, len(overrides))
+	for _, cfg := range overrides {
+		names[cfg.Name] = true
+	}
+	return names
+}
+
+// standardProviderNames lists the provider names that kantra manages natively.
+var standardProviderNames = map[string]bool{
+	util.JavaProvider:   true,
+	"builtin":           true,
+	util.GoProvider:     true,
+	util.PythonProvider: true,
+	util.NodeJSProvider: true,
+	util.CsharpProvider: true,
+}
+
+// hasNonStandardExternalProviders returns true if the override configs contain
+// at least one provider with an Address set whose name is NOT a standard
+// kantra-managed provider. This signals that the user is introducing a
+// completely new external provider rather than just tweaking an existing one.
+func hasNonStandardExternalProviders(overrides []provider.Config) bool {
+	for _, cfg := range overrides {
+		if cfg.Address != "" && !standardProviderNames[cfg.Name] {
+			return true
+		}
+	}
+	return false
+}
+
+// isExternalOnly returns true when all detected providers are externally
+// managed (appear in externalNames) or no providers were detected but
+// external overrides exist. This determines whether kantra can skip
+// Java-specific validation and use only builtin + external providers.
+func isExternalOnly(foundProviders []string, externalNames []string) bool {
+	if len(externalNames) == 0 {
+		return false
+	}
+	if len(foundProviders) == 0 {
+		return true
+	}
+	externalSet := make(map[string]bool, len(externalNames))
+	for _, name := range externalNames {
+		externalSet[name] = true
+	}
+	for _, p := range foundProviders {
+		if !externalSet[p] {
+			return false
+		}
+	}
+	return true
 }
 
 // applyAllProviderOverrides merges override configs into the base provider config list.

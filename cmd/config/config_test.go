@@ -18,6 +18,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/konveyor-ecosystem/kantra/pkg/profile"
+	hubapi "github.com/konveyor/tackle2-hub/shared/api"
 	"gopkg.in/yaml.v2"
 )
 
@@ -1036,11 +1037,11 @@ func TestSyncCommand_getApplicationFromHub(t *testing.T) {
 		{
 			name: "successful application retrieval",
 			serverResponse: func(w http.ResponseWriter, r *http.Request) {
-				apps := []profile.Application{
+				apps := []hubapi.Application{
 					{
-						ID:   1,
-						Name: "Test App",
-						Repository: &profile.Repository{
+						Resource: hubapi.Resource{ID: 1},
+						Name:     "Test App",
+						Repository: &hubapi.Repository{
 							URL: "https://github.com/example/test",
 						},
 					},
@@ -1057,13 +1058,13 @@ func TestSyncCommand_getApplicationFromHub(t *testing.T) {
 		{
 			name: "application not found",
 			serverResponse: func(w http.ResponseWriter, r *http.Request) {
-				apps := []profile.Application{
+				apps := []hubapi.Application{
 					{
-						ID:   1,
-						Name: "Different App",
+						Resource: hubapi.Resource{ID: 1},
+						Name:     "Different App",
 					},
 				}
-				apps[0].Repository = &profile.Repository{URL: "https://github.com/example/different"}
+				apps[0].Repository = &hubapi.Repository{URL: "https://github.com/example/different"}
 				jsonData, _ := json.Marshal(apps)
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusOK)
@@ -1145,14 +1146,14 @@ func TestSyncCommand_getProfilesFromHubApplication(t *testing.T) {
 		{
 			name: "successful profiles retrieval",
 			serverResponse: func(w http.ResponseWriter, r *http.Request) {
-				profiles := []profile.AnalysisProfile{
+				profiles := []hubapi.AnalysisProfile{
 					{
-						ID:   1,
-						Name: "Profile 1",
+						Resource: hubapi.Resource{ID: 1},
+						Name:     "Profile 1",
 					},
 					{
-						ID:   2,
-						Name: "Profile 2",
+						Resource: hubapi.Resource{ID: 2},
+						Name:     "Profile 2",
 					},
 				}
 				yamlData, _ := yaml.Marshal(profiles)
@@ -1167,7 +1168,7 @@ func TestSyncCommand_getProfilesFromHubApplication(t *testing.T) {
 		{
 			name: "no profiles found",
 			serverResponse: func(w http.ResponseWriter, r *http.Request) {
-				profiles := []profile.AnalysisProfile{}
+				profiles := []hubapi.AnalysisProfile{}
 				yamlData, _ := yaml.Marshal(profiles)
 				w.Header().Set("Content-Type", "application/x-yaml")
 				w.WriteHeader(http.StatusOK)
@@ -1461,6 +1462,62 @@ func TestExtractTarFile(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestExtractTarFile_removesStaleFiles(t *testing.T) {
+	log := logr.Discard()
+	tmpDir, err := os.MkdirTemp("", "test-extract-stale-")
+	if err != nil {
+		t.Fatalf("mkdir temp: %v", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	destDir := filepath.Join(tmpDir, "profile-1")
+	stalePath := filepath.Join(destDir, "rules", "removed-rule.yaml")
+	if err := os.MkdirAll(filepath.Join(destDir, "rules"), 0755); err != nil {
+		t.Fatalf("mkdir rules: %v", err)
+	}
+	if err := os.WriteFile(stalePath, []byte("stale"), 0644); err != nil {
+		t.Fatalf("write stale file: %v", err)
+	}
+
+	tarPath := filepath.Join(tmpDir, "bundle.tar")
+	tarFile, err := os.Create(tarPath)
+	if err != nil {
+		t.Fatalf("create tar: %v", err)
+	}
+	tarWriter := tar.NewWriter(tarFile)
+	header := &tar.Header{
+		Name: "profile.yaml",
+		Mode: 0644,
+		Size: int64(len("name: test")),
+	}
+	if err := tarWriter.WriteHeader(header); err != nil {
+		tarFile.Close()
+		t.Fatalf("tar header: %v", err)
+	}
+	if _, err := tarWriter.Write([]byte("name: test")); err != nil {
+		tarFile.Close()
+		t.Fatalf("tar body: %v", err)
+	}
+	if err := tarWriter.Close(); err != nil {
+		tarFile.Close()
+		t.Fatalf("tar close: %v", err)
+	}
+	if err := tarFile.Close(); err != nil {
+		t.Fatalf("close tar file: %v", err)
+	}
+
+	if err := extractTarFile(tarPath, destDir, log); err != nil {
+		t.Fatalf("extractTarFile: %v", err)
+	}
+	if _, err := os.Stat(stalePath); !os.IsNotExist(err) {
+		t.Errorf("expected stale rule file removed, still at %s", stalePath)
+	}
+	profilePath := filepath.Join(destDir, "profile.yaml")
+	if _, err := os.Stat(profilePath); err != nil {
+		t.Errorf("expected profile.yaml from bundle: %v", err)
 	}
 }
 

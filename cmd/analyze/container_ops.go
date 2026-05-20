@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"path"
 
-	"github.com/konveyor-ecosystem/kantra/pkg/util"
+	"github.com/konveyor-ecosystem/kantra/pkg/container"
 )
 
 func (a *analyzeCommand) getDepsFolders() (map[string]string, []string) {
@@ -12,7 +12,7 @@ func (a *analyzeCommand) getDepsFolders() (map[string]string, []string) {
 	dependencyFolders := []string{}
 	if len(a.depFolders) != 0 {
 		for i := range a.depFolders {
-			newDepPath := path.Join(util.InputPath, fmt.Sprintf("deps%v", i))
+			newDepPath := path.Join(container.InputPath, fmt.Sprintf("deps%v", i))
 			vols[a.depFolders[i]] = newDepPath
 			dependencyFolders = append(dependencyFolders, newDepPath)
 		}

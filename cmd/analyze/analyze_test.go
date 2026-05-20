@@ -453,10 +453,22 @@ func contains(s, substr string) bool {
 	return strings.Contains(s, substr)
 }
 
+// makeLabelSelectorCLICommand returns a command whose --label-selector flag is marked Changed,
+// matching a real user invocation of -l / --label-selector.
+func makeLabelSelectorCLICommand(value string) *cobra.Command {
+	cmd := &cobra.Command{}
+	cmd.Flags().StringP("label-selector", "l", "", "")
+	_ = cmd.Flags().Set("label-selector", value)
+	cmd.Flags().Lookup("label-selector").Changed = true
+	return cmd
+}
+
 func Test_analyzeCommand_getLabelSelectorArgs(t *testing.T) {
 	tests := []struct {
 		name          string
 		labelSelector string
+		profilePath   string
+		cmd           *cobra.Command
 		sources       []string
 		targets       []string
 		want          string
@@ -506,7 +518,21 @@ func Test_analyzeCommand_getLabelSelectorArgs(t *testing.T) {
 			targets:       []string{"t1", "t2"},
 			sources:       []string{"t1", "t2"},
 			labelSelector: "example.io/target=foo",
+			cmd:           makeLabelSelectorCLICommand("example.io/target=foo"),
 			want:          "example.io/target=foo",
+		},
+		{
+			name:          "CLI target merges with profile labelSelector via AND",
+			labelSelector: "(hibernate)",
+			profilePath:   "/app/.konveyor/profiles/p/profile.yaml",
+			targets:       []string{"cloud-readiness"},
+			want:          "((konveyor.io/target=cloud-readiness) || (discovery)) && ((hibernate))",
+		},
+		{
+			name:          "without profile, target only uses CLI expression (no AND with labelSelector)",
+			labelSelector: "(hibernate)",
+			targets:       []string{"cloud-readiness"},
+			want:          "(konveyor.io/target=cloud-readiness) || (discovery)",
 		},
 		{
 			name:          "multiple sources & targets specified, OR them within each other, AND result with catch-all source label, finally OR with default labels",
@@ -522,8 +548,9 @@ func Test_analyzeCommand_getLabelSelectorArgs(t *testing.T) {
 				sources:       tt.sources,
 				targets:       tt.targets,
 				labelSelector: tt.labelSelector,
+				profilePath:   tt.profilePath,
 			}
-			if got := a.getLabelSelector(); !reflect.DeepEqual(got, tt.want) {
+			if got := a.getLabelSelector(tt.cmd); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("analyzeCommand.getLabelSelectorArgs() = %v, want %v", got, tt.want)
 			}
 		})
@@ -1318,6 +1345,70 @@ func Test_analyzeCommand_disableMavenSearch_flagParsing(t *testing.T) {
 		})
 	}
 }
+
+func Test_analyzeCommand_containerRuntimeFlagsParsing(t *testing.T) {
+	a := &analyzeCommand{
+		containerRuntimeFlags: "--memory 4G --cpus 4",
+	}
+	want := []string{"--memory", "4G", "--cpus", "4"}
+	if got := a.containerRuntimeArgs(); !reflect.DeepEqual(got, want) {
+		t.Fatalf("containerRuntimeArgs() = %v, want %v", got, want)
+	}
+}
+
+func Test_parseContainerRuntimeFlags(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		want    []string
+		wantErr bool
+	}{
+		{
+			name:  "basic args",
+			input: "--memory 4G --cpus 4",
+			want:  []string{"--memory", "4G", "--cpus", "4"},
+		},
+		{
+			name:  "quoted value with spaces",
+			input: "--annotation \"io.konveyor.note=hello world\"",
+			want:  []string{"--annotation", "io.konveyor.note=hello world"},
+		},
+		{
+			name:  "single quotes",
+			input: "--label 'com.example/name=my app'",
+			want:  []string{"--label", "com.example/name=my app"},
+		},
+		{
+			name:  "escaped spaces",
+			input: "--label com.example/name=my\\ app",
+			want:  []string{"--label", "com.example/name=my app"},
+		},
+		{
+			name:    "unterminated quote",
+			input:   "--label \"broken",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parseContainerRuntimeFlags(tt.input)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error for input %q", tt.input)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseContainerRuntimeFlags() unexpected error: %v", err)
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Fatalf("parseContainerRuntimeFlags() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func Test_JavaProvider_GetConfig_disableMavenSearch(t *testing.T) {
 	tests := []struct {
 		name                       string
@@ -1450,10 +1541,10 @@ func Test_analyzeCommand_Validate_staticReportPath(t *testing.T) {
 			os.WriteFile(filepath.Join(tmpKantraDir, "fernflower.jar"), []byte(""), 0644)
 
 			a := &analyzeCommand{
-				staticReportPath:     reportPath,
-				input:                tmpInput,
-				output:               tmpOutput,
-				mode:                 "full",
+				staticReportPath:      reportPath,
+				input:                 tmpInput,
+				output:                tmpOutput,
+				mode:                  "full",
 				enableDefaultRulesets: true,
 				AnalyzeCommandContext: AnalyzeCommandContext{
 					log:       logr.Discard(),

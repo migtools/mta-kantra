@@ -1,10 +1,11 @@
 ARG VERSION=latest
 
-FROM registry.access.redhat.com/ubi9-minimal as rulesets
+FROM registry.access.redhat.com/ubi10-minimal as rulesets
 
 ARG RULESETS_REF=main
 RUN microdnf -y install git &&\
     git clone https://github.com/konveyor/tackle2-seed -b ${RULESETS_REF} &&\
+    git -C tackle2-seed rev-parse HEAD > tackle2-seed/resources/rulesets/.sha &&\
     git clone https://github.com/windup/windup-rulesets -b 6.3.1.Final
 
 FROM quay.io/konveyor/static-report:${VERSION} as static-report
@@ -69,8 +70,7 @@ RUN echo -e "[almalinux9-appstream]" \
  "\nenabled = 1" \
  "\ngpgcheck = 0" > /etc/yum.repos.d/almalinux.repo
 
-RUN microdnf -y install podman nodejs
-RUN npm install -g typescript-language-server typescript
+RUN microdnf -y install podman
 RUN echo mta:x:1001:0:1001 user:/home/mta:/sbin/nologin > /etc/passwd
 RUN echo mta:10000:5000 > /etc/subuid
 RUN echo mta:10000:5000 > /etc/subgid
@@ -97,8 +97,8 @@ COPY --from=yq-provider /usr/local/bin/yq /usr/local/bin/yq
 COPY --from=yq-provider /usr/local/bin/yq-external-provider /usr/local/bin/yq-external-provider
 COPY --from=analyzer /usr/local/bin/konveyor-analyzer /usr/local/bin/konveyor-analyzer
 COPY --from=analyzer /usr/local/bin/konveyor-analyzer-dep /usr/local/bin/konveyor-analyzer-dep
-COPY --chmod=755 entrypoint.sh /usr/bin/entrypoint.sh
-COPY --chmod=755 openrewrite_entrypoint.sh /usr/bin/openrewrite_entrypoint.sh
+COPY --chmod=755 hack/entrypoint.sh /usr/bin/entrypoint.sh
+COPY --chmod=755 hack/openrewrite_entrypoint.sh /usr/bin/openrewrite_entrypoint.sh
 
 USER 1001
 ENTRYPOINT ["kantra"]

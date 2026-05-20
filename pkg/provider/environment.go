@@ -104,6 +104,18 @@ type EnvironmentConfig struct {
 	// DisableMavenSearch disables Maven central search for the Java provider.
 	DisableMavenSearch bool
 
+	// ExternalOnly indicates that only builtin + user-managed external
+	// providers are needed. When true, the local environment skips
+	// Java-specific validation (mvn, java, JAVA_HOME, Java bundles)
+	// and generates only builtin provider configs. External provider
+	// configs are added later via --override-provider-settings.
+	ExternalOnly bool
+
+	// EnableDefaultRulesets controls whether default rulesets are used.
+	// In local mode, controls kantraDir/rulesets validation.
+	// In container mode, controls whether rulesets are extracted.
+	EnableDefaultRulesets bool
+
 	// -- Container mode fields (ignored in local mode) --
 
 	// Providers lists the providers to start in containers.
@@ -112,14 +124,15 @@ type EnvironmentConfig struct {
 	// ContainerBinary is the path to the container runtime (podman/docker).
 	ContainerBinary string
 
+	// ContainerRuntimeArgs are additional arguments passed to the container
+	// runtime for every "run" invocation (for example --memory and --cpus).
+	ContainerRuntimeArgs []string
+
 	// RunnerImage is the kantra runner container image (for ruleset extraction).
 	RunnerImage string
 
 	// OutputDir is the analysis output directory (used for ruleset cache).
 	OutputDir string
-
-	// EnableDefaultRulesets controls whether default rulesets are extracted.
-	EnableDefaultRulesets bool
 
 	// LogLevel for provider containers.
 	LogLevel *uint32

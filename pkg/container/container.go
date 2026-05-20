@@ -17,6 +17,31 @@ import (
 	"github.com/go-logr/logr"
 )
 
+var (
+	// TODO (pgaikwad): this assumes that the $USER in container is always root, it may not be the case in future
+	M2Dir = path.Join("/", "root", ".m2")
+	// SourceMountPath is the directory where source code is mounted in the container.
+	// This value must not be modified at runtime. Use analyzeCommand.sourceLocationPath
+	// for the resolved source location (which may include a filename for file inputs).
+	SourceMountPath = path.Join(InputPath, "source")
+	// ConfigMountPath analyzer config files
+	ConfigMountPath = path.Join(InputPath, "config")
+	// RulesMountPath user provided rules path
+	RulesMountPath = path.Join(RulesetPath, "input")
+	// AnalysisOutputMountPath paths to files in the container
+	AnalysisOutputMountPath   = path.Join(OutputPath, "output.yaml")
+	DepsOutputMountPath       = path.Join(OutputPath, "dependencies.yaml")
+	ProviderSettingsMountPath = path.Join(ConfigMountPath, "settings.json")
+)
+
+// analyzer container paths
+const (
+	RulesetPath    = "/opt/rulesets"
+	InputPath      = "/opt/input"
+	OutputPath     = "/opt/output"
+	CustomRulePath = "/opt/input/rules"
+)
+
 type container struct {
 	stdout         []io.Writer
 	stderr         []io.Writer
@@ -38,6 +63,7 @@ type container struct {
 	detached         bool
 	log              logr.Logger
 	containerToolBin string
+	runtimeArgs      []string
 	reproducerCmd    *string
 }
 
@@ -76,6 +102,12 @@ func WithEntrypointBin(b string) Option {
 func WithContainerToolBin(r string) Option {
 	return func(c *container) {
 		c.containerToolBin = r
+	}
+}
+
+func WithRuntimeArgs(args ...string) Option {
+	return func(c *container) {
+		c.runtimeArgs = args
 	}
 }
 
@@ -235,6 +267,9 @@ func (c *container) Run(ctx context.Context, opts ...Option) error {
 	}
 	if c.cleanup {
 		args = append(args, "--rm")
+	}
+	if len(c.runtimeArgs) > 0 {
+		args = append(args, c.runtimeArgs...)
 	}
 	if c.Name != "" {
 		args = append(args, "--name")

@@ -1,11 +1,11 @@
 .vscode/
 .idea/
 
-CLAUDE.md
-
 *.out
 
 .metadata/
+.settings/
+target/
 
 env.local
 

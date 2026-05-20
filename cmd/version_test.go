@@ -2,9 +2,14 @@ package cmd
 
 import (
 	"bytes"
+	"errors"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/konveyor-ecosystem/kantra/cmd/internal/settings"
+	"github.com/konveyor-ecosystem/kantra/pkg/util"
 	"github.com/spf13/cobra"
 )
 
@@ -85,11 +90,10 @@ func TestNewVersionCommand(t *testing.T) {
 				t.Errorf("Unexpected error: %v", err)
 			}
 
-			// Verify output contains expected components (since fmt.Printf goes to stdout, not cobra's output)
 			output := buf.String()
-			// Since fmt.Printf writes directly to stdout, the cobra buffer might be empty
-			// We'll just verify the command executed without error for now
-			_ = output // Acknowledge we're not checking output due to fmt.Printf limitation
+			if !strings.Contains(output, tt.expectedOutput) {
+				t.Errorf("expected output to contain %q, got %q", tt.expectedOutput, output)
+			}
 		})
 	}
 }
@@ -172,9 +176,162 @@ func TestVersionCommand_OutputFormat(t *testing.T) {
 		t.Errorf("Unexpected error: %v", err)
 	}
 
-	// Since fmt.Printf writes directly to stdout, not cobra's output buffer,
-	// we can't easily test the output format. We'll just verify execution succeeded.
-	_ = buf.String() // Acknowledge we're not checking output due to fmt.Printf limitation
+	output := buf.String()
+	for _, expected := range []string{"version: test-version", "SHA: test-commit", "image: test-image"} {
+		if !strings.Contains(output, expected) {
+			t.Errorf("expected output to contain %q, got %q", expected, output)
+		}
+	}
+}
+
+func TestVersionCommand_WithRulesetsSHA(t *testing.T) {
+	// Set up a temp directory with a .sha file so the version command prints it
+	tmpDir := t.TempDir()
+	rulesetsDir := filepath.Join(tmpDir, settings.RulesetsLocation)
+	if err := os.MkdirAll(rulesetsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(rulesetsDir, ".sha"), []byte("deadbeef123\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(util.KantraDirEnv, tmpDir)
+
+	cmd := NewVersionCommand()
+	buf := &bytes.Buffer{}
+	cmd.SetOut(buf)
+	cmd.SetErr(buf)
+	cmd.SetArgs([]string{})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, "rulesets SHA: deadbeef123") {
+		t.Errorf("expected output to contain rulesets SHA, got %q", output)
+	}
+}
+
+func TestVersionCommand_WarningOnSHAReadError(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("skipping permission test when running as root")
+	}
+	// Set up a temp directory with a .sha file that has no read permission
+	tmpDir := t.TempDir()
+	rulesetsDir := filepath.Join(tmpDir, settings.RulesetsLocation)
+	if err := os.MkdirAll(rulesetsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	shaPath := filepath.Join(rulesetsDir, ".sha")
+	if err := os.WriteFile(shaPath, []byte("abc123\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(shaPath, 0000); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(util.KantraDirEnv, tmpDir)
+
+	cmd := NewVersionCommand()
+	stdout := &bytes.Buffer{}
+	stderr := &bytes.Buffer{}
+	cmd.SetOut(stdout)
+	cmd.SetErr(stderr)
+	cmd.SetArgs([]string{})
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+
+	// The warning should go to stderr
+	if !strings.Contains(stderr.String(), "warning: unable to read rulesets SHA") {
+		t.Errorf("expected warning on stderr, got %q", stderr.String())
+	}
+	// stdout should not contain rulesets SHA
+	if strings.Contains(stdout.String(), "rulesets SHA") {
+		t.Errorf("did not expect rulesets SHA on stdout, got %q", stdout.String())
+	}
+}
+
+func TestReadRulesetsSHA(t *testing.T) {
+	t.Run("reads sha from file", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		rulesetsDir := filepath.Join(tmpDir, settings.RulesetsLocation)
+		if err := os.MkdirAll(rulesetsDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv(util.KantraDirEnv, tmpDir)
+
+		expected := "abc123def456"
+		if err := os.WriteFile(filepath.Join(rulesetsDir, ".sha"), []byte(expected+"\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		got, err := readRulesetsSHA()
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got != expected {
+			t.Errorf("readRulesetsSHA() = %q, want %q", got, expected)
+		}
+	})
+
+	t.Run("KANTRA_DIR set but .sha missing returns os.ErrNotExist without fallback", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		rulesetsDir := filepath.Join(tmpDir, settings.RulesetsLocation)
+		if err := os.MkdirAll(rulesetsDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv(util.KantraDirEnv, tmpDir)
+
+		_, err := readRulesetsSHA()
+		if !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("expected os.ErrNotExist, got %v", err)
+		}
+	})
+
+	t.Run("permission error is returned not suppressed", func(t *testing.T) {
+		if os.Getuid() == 0 {
+			t.Skip("skipping permission test when running as root")
+		}
+		tmpDir := t.TempDir()
+		rulesetsDir := filepath.Join(tmpDir, settings.RulesetsLocation)
+		if err := os.MkdirAll(rulesetsDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv(util.KantraDirEnv, tmpDir)
+
+		shaPath := filepath.Join(rulesetsDir, ".sha")
+		if err := os.WriteFile(shaPath, []byte("abc123\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(shaPath, 0000); err != nil {
+			t.Fatal(err)
+		}
+
+		_, err := readRulesetsSHA()
+		if err == nil {
+			t.Error("expected error for unreadable .sha file")
+		}
+		if errors.Is(err, os.ErrNotExist) {
+			t.Error("expected permission error, not ErrNotExist")
+		}
+	})
+
+	t.Run("falls back to /opt when KANTRA_DIR not set and .sha missing from kantra dir", func(t *testing.T) {
+		// Ensure KANTRA_DIR is unset to trigger fallback to /opt/rulesets/.sha
+		// t.Setenv registers cleanup to restore the original value
+		if orig := os.Getenv(util.KantraDirEnv); orig != "" {
+			t.Setenv(util.KantraDirEnv, orig)
+			os.Unsetenv(util.KantraDirEnv)
+		}
+
+		_, err := readRulesetsSHA()
+		// In test environment /opt/rulesets/.sha won't exist either,
+		// but the important thing is we get an error (not nil),
+		// confirming the fallback path was reached
+		if err == nil {
+			t.Error("expected error in test environment")
+		}
+	})
 }
 
 func TestVersionGlobalVariables(t *testing.T) {
