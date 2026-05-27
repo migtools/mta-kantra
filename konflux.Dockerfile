@@ -8,7 +8,9 @@ RUN CGO_ENABLED=0 GOOS=linux GOEXPERIMENT=strictfipsruntime go build -tags stric
 -X 'github.com/konveyor-ecosystem/kantra/cmd.JavaBundlesLocation=/jdtls/java-analyzer-bundle/java-analyzer-bundle.core/target/java-analyzer-bundle.core.jar' \
 -X 'github.com/konveyor-ecosystem/kantra/cmd.JavaProviderImage=registry.redhat.io/mta/mta-java-external-provider-rhel9:$BUILD_VERSION' \
 -X 'github.com/konveyor-ecosystem/kantra/cmd.CsharpProviderImage=registry.redhat.io/mta/mta-dotnet-external-provider-rhel9:$BUILD_VERSION' \
--X 'github.com/konveyor-ecosystem/kantra/cmd.GenericProviderImage=registry.redhat.io/mta/mta-generic-external-provider-rhel9:$BUILD_VERSION' \
+-X 'github.com/konveyor-ecosystem/kantra/cmd.GoProviderImage=registry.redhat.io/mta/mta-go-external-provider-rhel9:$BUILD_VERSION' \
+-X 'github.com/konveyor-ecosystem/kantra/cmd.PythonProviderImage=registry.redhat.io/mta/mta-python-external-provider-rhel9:$BUILD_VERSION' \
+-X 'github.com/konveyor-ecosystem/kantra/cmd.NodeJSProviderImage=registry.redhat.io/mta/mta-nodejs-external-provider-rhel9:$BUILD_VERSION' \
 -X 'github.com/konveyor-ecosystem/kantra/cmd.RootCommandName=mta-cli' \
 -X 'github.com/konveyor-ecosystem/kantra/cmd.BuildCommit=$SOURCE_GIT_COMMIT'" \
  -a -o mta-cli main.go
@@ -18,7 +20,9 @@ RUN CGO_ENABLED=0 GOOS=darwin go build \
 -X 'github.com/konveyor-ecosystem/kantra/cmd.JavaBundlesLocation=/jdtls/java-analyzer-bundle/java-analyzer-bundle.core/target/java-analyzer-bundle.core.jar' \
 -X 'github.com/konveyor-ecosystem/kantra/cmd.JavaProviderImage=registry.redhat.io/mta/mta-java-external-provider-rhel9:$BUILD_VERSION' \
 -X 'github.com/konveyor-ecosystem/kantra/cmd.CsharpProviderImage=registry.redhat.io/mta/mta-dotnet-external-provider-rhel9:$BUILD_VERSION' \
--X 'github.com/konveyor-ecosystem/kantra/cmd.GenericProviderImage=registry.redhat.io/mta/mta-generic-external-provider-rhel9:$BUILD_VERSION' \
+-X 'github.com/konveyor-ecosystem/kantra/cmd.GoProviderImage=registry.redhat.io/mta/mta-go-external-provider-rhel9:$BUILD_VERSION' \
+-X 'github.com/konveyor-ecosystem/kantra/cmd.PythonProviderImage=registry.redhat.io/mta/mta-python-external-provider-rhel9:$BUILD_VERSION' \
+-X 'github.com/konveyor-ecosystem/kantra/cmd.NodeJSProviderImage=registry.redhat.io/mta/mta-nodejs-external-provider-rhel9:$BUILD_VERSION' \
 -X 'github.com/konveyor-ecosystem/kantra/cmd.RootCommandName=mta-cli' \
 -X 'github.com/konveyor-ecosystem/kantra/cmd.BuildCommit=$SOURCE_GIT_COMMIT'" \
  -a -o darwin-mta-cli main.go
@@ -28,7 +32,9 @@ RUN CGO_ENABLED=0 GOOS=windows go build \
 -X 'github.com/konveyor-ecosystem/kantra/cmd.JavaBundlesLocation=/jdtls/java-analyzer-bundle/java-analyzer-bundle.core/target/java-analyzer-bundle.core.jar' \
 -X 'github.com/konveyor-ecosystem/kantra/cmd.JavaProviderImage=registry.redhat.io/mta/mta-java-external-provider-rhel9:$BUILD_VERSION' \
 -X 'github.com/konveyor-ecosystem/kantra/cmd.CsharpProviderImage=registry.redhat.io/mta/mta-dotnet-external-provider-rhel9:$BUILD_VERSION' \
--X 'github.com/konveyor-ecosystem/kantra/cmd.GenericProviderImage=registry.redhat.io/mta/mta-generic-external-provider-rhel9:$BUILD_VERSION' \
+-X 'github.com/konveyor-ecosystem/kantra/cmd.GoProviderImage=registry.redhat.io/mta/mta-go-external-provider-rhel9:$BUILD_VERSION' \
+-X 'github.com/konveyor-ecosystem/kantra/cmd.PythonProviderImage=registry.redhat.io/mta/mta-python-external-provider-rhel9:$BUILD_VERSION' \
+-X 'github.com/konveyor-ecosystem/kantra/cmd.NodeJSProviderImage=registry.redhat.io/mta/mta-nodejs-external-provider-rhel9:$BUILD_VERSION' \
 -X 'github.com/konveyor-ecosystem/kantra/cmd.RootCommandName=mta-cli' \
 -X 'github.com/konveyor-ecosystem/kantra/cmd.BuildCommit=$SOURCE_GIT_COMMIT'" \
  -a -o windows-mta-cli.exe main.go
@@ -39,21 +45,15 @@ COPY --chown=1001:0 . /workspace
 # Need to import from all of these
 FROM brew.registry.redhat.io/rh-osbs/mta-mta-static-report-rhel9:8.0.1 as static-report
 FROM brew.registry.redhat.io/rh-osbs/mta-mta-analyzer-lsp-rhel9:8.0.1 as analyzer
-FROM brew.registry.redhat.io/rh-osbs/mta-mta-generic-external-provider-rhel9:8.0.1 as generic-provider
+FROM brew.registry.redhat.io/rh-osbs/mta-mta-go-external-provider-rhel9:8.0.1 as go-provider
+FROM brew.registry.redhat.io/rh-osbs/mta-mta-python-external-provider-rhel9:8.0.1 as python-provider
+FROM brew.registry.redhat.io/rh-osbs/mta-mta-nodejs-external-provider-rhel9:8.0.1 as nodejs-provider
 
 FROM brew.registry.redhat.io/rh-osbs/mta-mta-java-external-provider-rhel9:8.0.1
 
 USER 0
 
-RUN dnf -y module enable nodejs:18
-RUN dnf -y install podman nodejs && dnf -y clean all
-
-ENV NODEJS_VERSION=18
-COPY --from=builder /workspace/hack/build/typescript.tgz typescript.tgz
-COPY --from=builder /workspace/hack/build/typescript-language-server.tgz typescript-language-server.tgz
-RUN npm install -g typescript-language-server.tgz typescript.tgz
-RUN typescript-language-server --version
-RUN rm -r typescript.tgz typescript-language-server.tgz
+RUN dnf -y install podman && dnf -y clean all
 
 RUN echo mta:x:1001:0:1001 user:/home/mta:/sbin/nologin > /etc/passwd
 RUN echo mta:10000:5000 > /etc/subuid
@@ -73,9 +73,9 @@ COPY --from=builder /workspace/windows-mta-cli.exe /usr/local/bin/windows-mta-cl
 COPY --from=rulesets /workspace/hack/build/rulesets/stable /opt/rulesets
 COPY --from=rulesets /workspace/hack/build/windup-rulesets/rules/rules-reviewed/openrewrite /opt/openrewrite
 COPY --from=static-report /usr/local/static-report /usr/local/static-report
-COPY --from=generic-provider /usr/local/bin/generic-external-provider /usr/local/bin/generic-external-provider
-COPY --from=generic-provider /usr/local/bin/golang-dependency-provider /usr/local/bin/golang-dependency-provider
-COPY --from=generic-provider /usr/local/bin/gopls /usr/local/bin/gopls
+COPY --from=go-provider /usr/local/bin/go-external-provider /usr/local/bin/go-external-provider
+COPY --from=python-provider /usr/local/bin/python-external-provider /usr/local/bin/python-external-provider
+COPY --from=nodejs-provider /usr/local/bin/nodejs-external-provider /usr/local/bin/nodejs-external-provider
 COPY --from=analyzer /usr/local/bin/konveyor-analyzer /usr/local/bin/konveyor-analyzer
 COPY --from=analyzer /usr/local/bin/konveyor-analyzer-dep /usr/local/bin/konveyor-analyzer-dep
 COPY --from=builder --chmod=755 /workspace/entrypoint.sh /usr/bin/entrypoint.sh
