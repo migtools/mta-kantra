@@ -11,10 +11,9 @@ import (
 )
 
 var (
-	// MavenCacheDir is the container-internal directory for the Maven
-	// local repository cache. Mounted under /opt/input so it is
-	// accessible regardless of which user the container runs as.
-	MavenCacheDir = path.Join(InputPath, "maven-cache")
+	// MavenCacheDir is the container-internal Maven local repository path.
+	// Must be a dedicated volume mount so Maven can write regardless of user
+	MavenCacheDir = path.Join("/cache", "m2")
 	// SourceMountPath is the directory where source code is mounted in the container.
 	// This value must not be modified at runtime. Use analyzeCommand.sourceLocationPath
 	// for the resolved source location (which may include a filename for file inputs).
@@ -190,10 +189,29 @@ func ShouldFilterLine(line string) bool {
 
 const KantraDirEnv = "KANTRA_DIR"
 
+// configDirBasename is the dot-prefixed directory under $HOME / $XDG_CONFIG_HOME.
+// Default ".kantra"; distributors override at build time via settings.ConfigDirName.
+var configDirBasename = ".kantra"
+
+// SetConfigDirBasename sets the config directory basename used by GetKantraDir.
+// Called from settings.Load() with the build-time ConfigDirName value.
+func SetConfigDirBasename(basename string) {
+	if basename == "" {
+		configDirBasename = ".kantra"
+		return
+	}
+	configDirBasename = basename
+}
+
+// ConfigDirBasename returns the active dot-prefixed config directory name.
+func ConfigDirBasename() string {
+	return configDirBasename
+}
+
 // GetKantraDir returns the directory used for rulesets, jdtls, and static-report.
 // Resolution order: 1) KANTRA_DIR env var (if set), 2) current directory if it
-// contains "rulesets", "jdtls", and "static-report", 3) $HOME/.kantra (or
-// $XDG_CONFIG_HOME/.kantra on Linux when set).
+// contains "rulesets", "jdtls", and "static-report", 3) $HOME/<config dir> (or
+// $XDG_CONFIG_HOME/<config dir> on Linux when set; see ConfigDirBasename).
 func GetKantraDir() (string, error) {
 	var dir string
 	var err error
@@ -229,7 +247,7 @@ func GetKantraDir() (string, error) {
 	if set {
 		return dir, nil
 	}
-	// fall back to $HOME/.kantra
+	// fall back to config dir under $HOME or $XDG_CONFIG_HOME (Linux).
 	ops := runtime.GOOS
 	if ops == "linux" {
 		dir, set = os.LookupEnv("XDG_CONFIG_HOME")
@@ -241,5 +259,5 @@ func GetKantraDir() (string, error) {
 			return "", err
 		}
 	}
-	return filepath.Join(dir, ".kantra"), nil
+	return filepath.Join(dir, ConfigDirBasename()), nil
 }

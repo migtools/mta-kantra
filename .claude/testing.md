@@ -31,6 +31,8 @@ Kantra behavior can be customized via environment variables (see `cmd/settings.g
 - `JVM_MAX_MEM` — JVM maximum memory for Java analysis (e.g., `4g`, `8g`)
 - `CMD_NAME` — Override root command name (default: `kantra`)
 
+Config directory basename (`~/.kantra` by default) is set at **build time** via ldflags (`settings.ConfigDirName`), not at runtime.
+
 ## Analysis Commands
 
 ### Containerless Mode (Default)
@@ -38,7 +40,7 @@ Kantra behavior can be customized via environment variables (see `cmd/settings.g
 **Basic analysis with Java test data**:
 ```bash
 ./kantra analyze \
-  --input cmd/testrunner/examples/test-data/java \
+  --input cmd/rules/test/examples/java/test-data/java \
   --output ./output-containerless \
   --target cloud-readiness \
   --overwrite
@@ -47,9 +49,9 @@ Kantra behavior can be customized via environment variables (see `cmd/settings.g
 **Analysis with custom rules**:
 ```bash
 ./kantra analyze \
-  --input cmd/testrunner/examples/test-data/java \
+  --input cmd/rules/test/examples/java/test-data/java \
   --output ./output-custom-rules \
-  --rules cmd/testrunner/examples/java/local-storage.yml \
+  --rules cmd/rules/test/examples/java/local-storage.yml \
   --overwrite
 ```
 
@@ -58,7 +60,7 @@ Kantra behavior can be customized via environment variables (see `cmd/settings.g
 **Basic hybrid analysis**:
 ```bash
 ./kantra analyze \
-  --input cmd/testrunner/examples/test-data/java \
+  --input cmd/rules/test/examples/java/test-data/java \
   --output ./output-hybrid \
   --target cloud-readiness \
   --run-local=false \
@@ -69,7 +71,7 @@ Kantra behavior can be customized via environment variables (see `cmd/settings.g
 ```bash
 export CONTAINER_TOOL=/usr/local/bin/docker
 ./kantra analyze \
-  --input cmd/testrunner/examples/test-data/java \
+  --input cmd/rules/test/examples/java/test-data/java \
   --output ./output-docker \
   --run-local=false \
   --overwrite
@@ -88,7 +90,7 @@ export CONTAINER_TOOL=/usr/local/bin/docker
 **Run OpenRewrite transformation**:
 ```bash
 ./kantra transform openrewrite \
-  --input cmd/testrunner/examples/test-data/java \
+  --input cmd/rules/test/examples/java/test-data/java \
   --target <recipe-name>
 ```
 
@@ -132,20 +134,27 @@ export CONTAINER_TOOL=/usr/local/bin/docker
 
 ## Test Commands (YAML Rules)
 
-**Test a single rule file**:
+Paths in this section are relative to the **repository root** (same as `go run` / `./kantra` cwd).
+
+**Test a single rule file** (containerless; no Podman/Docker required):
 ```bash
-./kantra test cmd/testrunner/examples/java/local-storage.test.yml
+go run main.go rules test cmd/rules/test/examples/java/local-storage.test.yml --run-local
+```
+
+After `go build -o kantra .`:
+```bash
+./kantra rules test cmd/rules/test/examples/java/local-storage.test.yml --run-local
 ```
 
 **Test all rules in a directory**:
 ```bash
-./kantra test cmd/testrunner/examples/builtin/ cmd/testrunner/examples/java/
+./kantra rules test cmd/rules/test/examples/builtin/ cmd/rules/test/examples/java/
 ```
 
 **Test with specific labels**:
 ```bash
-./kantra test \
-  --rules cmd/testrunner/examples/ \
+./kantra rules test \
+  --rules cmd/rules/test/examples/ \
   --labels "konveyor.io/target=cloud-readiness"
 ```
 
@@ -170,7 +179,7 @@ export KANTRA_NO_CLEANUP=1
 # Build and run basic analysis
 go build -o kantra .
 ./kantra analyze \
-  --input cmd/testrunner/examples/test-data/java \
+  --input cmd/rules/test/examples/java/test-data/java \
   --output ./test-output \
   --target cloud-readiness \
   --overwrite
@@ -188,7 +197,7 @@ podman ps
 
 # Run hybrid analysis
 ./kantra analyze \
-  --input cmd/testrunner/examples/test-data/java \
+  --input cmd/rules/test/examples/java/test-data/java \
   --output ./test-hybrid \
   --run-local=false \
   --overwrite
