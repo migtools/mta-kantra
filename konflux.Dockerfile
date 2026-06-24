@@ -78,8 +78,8 @@ COPY --from=python-provider /usr/local/bin/python-external-provider /usr/local/b
 COPY --from=nodejs-provider /usr/local/bin/nodejs-external-provider /usr/local/bin/nodejs-external-provider
 COPY --from=analyzer /usr/local/bin/konveyor-analyzer /usr/local/bin/konveyor-analyzer
 COPY --from=analyzer /usr/local/bin/konveyor-analyzer-dep /usr/local/bin/konveyor-analyzer-dep
-COPY --from=builder --chmod=755 /workspace/entrypoint.sh /usr/bin/entrypoint.sh
-COPY --from=builder --chmod=755 /workspace/openrewrite_entrypoint.sh /usr/bin/openrewrite_entrypoint.sh
+COPY --from=builder --chmod=755 /workspace/hack/entrypoint.sh /usr/bin/entrypoint.sh
+COPY --from=builder --chmod=755 /workspace/hack/openrewrite_entrypoint.sh /usr/bin/openrewrite_entrypoint.sh
 COPY --from=builder /workspace/LICENSE /licenses/
 
 # Only do this downstream
