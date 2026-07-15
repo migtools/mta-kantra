@@ -5,7 +5,8 @@ WORKDIR /workspace
 RUN CGO_ENABLED=0 GOOS=linux GOEXPERIMENT=strictfipsruntime go build -tags strictfipsruntime \
 --ldflags="-X 'github.com/konveyor-ecosystem/kantra/cmd/internal/settings.Version=$BUILD_VERSION' \
 -X 'github.com/konveyor-ecosystem/kantra/cmd/internal/settings.RunnerImage=registry.redhat.io/mta/mta-cli-rhel9:$BUILD_VERSION' \
--X 'github.com/konveyor-ecosystem/kantra/cmd/internal/settings.JavaBundlesLocation=/jdtls/java-analyzer-bundle/java-analyzer-bundle.core/target/java-analyzer-bundle.core.jar' \
+-X 'github.com/konveyor-ecosystem/kantra/pkg/provider.ContainerJavaBundlePath=/jdtls/java-analyzer-bundle/java-analyzer-bundle.core/target/java-analyzer-bundle.core.jar' \
+-X 'github.com/konveyor-ecosystem/kantra/pkg/provider.LocalJavaBundlePath=jdtls/java-analyzer-bundle/java-analyzer-bundle.core/target/java-analyzer-bundle.core.jar' \
 -X 'github.com/konveyor-ecosystem/kantra/cmd/internal/settings.JavaProviderImage=registry.redhat.io/mta/mta-java-external-provider-rhel9:$BUILD_VERSION' \
 -X 'github.com/konveyor-ecosystem/kantra/cmd/internal/settings.CsharpProviderImage=registry.redhat.io/mta/mta-dotnet-external-provider-rhel9:$BUILD_VERSION' \
 -X 'github.com/konveyor-ecosystem/kantra/cmd/internal/settings.GoProviderImage=registry.redhat.io/mta/mta-go-external-provider-rhel9:$BUILD_VERSION' \
@@ -17,7 +18,8 @@ RUN CGO_ENABLED=0 GOOS=linux GOEXPERIMENT=strictfipsruntime go build -tags stric
 RUN CGO_ENABLED=0 GOOS=darwin go build \
 --ldflags="-X 'github.com/konveyor-ecosystem/kantra/cmd/internal/settings.Version=$BUILD_VERSION' \
 -X 'github.com/konveyor-ecosystem/kantra/cmd/internal/settings.RunnerImage=registry.redhat.io/mta/mta-cli-rhel9:$BUILD_VERSION' \
--X 'github.com/konveyor-ecosystem/kantra/cmd/internal/settings.JavaBundlesLocation=/jdtls/java-analyzer-bundle/java-analyzer-bundle.core/target/java-analyzer-bundle.core.jar' \
+-X 'github.com/konveyor-ecosystem/kantra/pkg/provider.ContainerJavaBundlePath=/jdtls/java-analyzer-bundle/java-analyzer-bundle.core/target/java-analyzer-bundle.core.jar' \
+-X 'github.com/konveyor-ecosystem/kantra/pkg/provider.LocalJavaBundlePath=jdtls/java-analyzer-bundle/java-analyzer-bundle.core/target/java-analyzer-bundle.core.jar' \
 -X 'github.com/konveyor-ecosystem/kantra/cmd/internal/settings.JavaProviderImage=registry.redhat.io/mta/mta-java-external-provider-rhel9:$BUILD_VERSION' \
 -X 'github.com/konveyor-ecosystem/kantra/cmd/internal/settings.CsharpProviderImage=registry.redhat.io/mta/mta-dotnet-external-provider-rhel9:$BUILD_VERSION' \
 -X 'github.com/konveyor-ecosystem/kantra/cmd/internal/settings.GoProviderImage=registry.redhat.io/mta/mta-go-external-provider-rhel9:$BUILD_VERSION' \
@@ -29,7 +31,8 @@ RUN CGO_ENABLED=0 GOOS=darwin go build \
 RUN CGO_ENABLED=0 GOOS=windows go build \
 --ldflags="-X 'github.com/konveyor-ecosystem/kantra/cmd/internal/settings.Version=$BUILD_VERSION' \
 -X 'github.com/konveyor-ecosystem/kantra/cmd/internal/settings.RunnerImage=registry.redhat.io/mta/mta-cli-rhel9:$BUILD_VERSION' \
--X 'github.com/konveyor-ecosystem/kantra/cmd/internal/settings.JavaBundlesLocation=/jdtls/java-analyzer-bundle/java-analyzer-bundle.core/target/java-analyzer-bundle.core.jar' \
+-X 'github.com/konveyor-ecosystem/kantra/pkg/provider.ContainerJavaBundlePath=/jdtls/java-analyzer-bundle/java-analyzer-bundle.core/target/java-analyzer-bundle.core.jar' \
+-X 'github.com/konveyor-ecosystem/kantra/pkg/provider.LocalJavaBundlePath=jdtls/java-analyzer-bundle/java-analyzer-bundle.core/target/java-analyzer-bundle.core.jar' \
 -X 'github.com/konveyor-ecosystem/kantra/cmd/internal/settings.JavaProviderImage=registry.redhat.io/mta/mta-java-external-provider-rhel9:$BUILD_VERSION' \
 -X 'github.com/konveyor-ecosystem/kantra/cmd/internal/settings.CsharpProviderImage=registry.redhat.io/mta/mta-dotnet-external-provider-rhel9:$BUILD_VERSION' \
 -X 'github.com/konveyor-ecosystem/kantra/cmd/internal/settings.GoProviderImage=registry.redhat.io/mta/mta-go-external-provider-rhel9:$BUILD_VERSION' \
