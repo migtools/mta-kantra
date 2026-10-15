@@ -1,7 +1,7 @@
-[submodule "hack/build/rulesets"]
-	path = hack/build/rulesets
-	url = https://github.com/konveyor/rulesets
-	branch = main
 [submodule "hack/build/windup-rulesets"]
 	path = hack/build/windup-rulesets
 	url = https://github.com/windup/windup-rulesets
+[submodule "hack/build/seed"]
+	path = hack/build/seed
+	url = https://github.com/konveyor/tackle2-seed
+	branch = release-0.11
