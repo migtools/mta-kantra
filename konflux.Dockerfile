@@ -73,7 +73,7 @@ RUN chown -R 0:1001 /usr/local/static-report
 COPY --from=builder /workspace/mta-cli /usr/local/bin/mta-cli
 COPY --from=builder /workspace/darwin-mta-cli /usr/local/bin/darwin-mta-cli
 COPY --from=builder /workspace/windows-mta-cli.exe /usr/local/bin/windows-mta-cli.exe
-COPY --from=rulesets /workspace/hack/build/rulesets/stable /opt/rulesets
+COPY --from=rulesets /workspace/hack/build/seed/resources/rulesets /opt/rulesets
 COPY --from=rulesets /workspace/hack/build/windup-rulesets/rules/rules-reviewed/openrewrite /opt/openrewrite
 COPY --from=static-report /usr/local/static-report /usr/local/static-report
 COPY --from=go-provider /usr/local/bin/go-external-provider /usr/local/bin/go-external-provider
