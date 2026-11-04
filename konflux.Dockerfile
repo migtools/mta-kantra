@@ -1,4 +1,4 @@
-FROM registry.redhat.io/ubi10/go-toolset:1.24 AS builder
+FROM registry.redhat.io/ubi10/go-toolset:1.26 AS builder
 COPY --chown=1001:0 . /workspace
 WORKDIR /workspace
 
