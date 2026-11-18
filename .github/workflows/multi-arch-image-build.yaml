@@ -21,6 +21,10 @@ jobs:
       image_name: "kantra"
       containerfile: "./Dockerfile"
       architectures: '[ "amd64", "arm64" ]'
+      # Build-only: product images are published by Konflux, not by this
+      # workflow. Publishing here would target quay.io/konveyor (owned by the
+      # upstream repo), which this fork is not authorized to push to.
+      publish: 'false'
       extra-args: |
         --build-arg RULESETS_REF=${{ github.ref_name }} --build-arg VERSION=${{ github.ref_name == 'main' && 'latest' || github.ref_name }} --build-arg BUILD_COMMIT=${{ github.sha }}
     secrets:
