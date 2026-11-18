@@ -90,6 +90,12 @@ RUN echo -e "[almalinux9-appstream]" \
  "\nname = almalinux9-appstream" \
  "\nbaseurl = https://repo.almalinux.org/almalinux/9/AppStream/\$basearch/os/" \
  "\nenabled = 1" \
+ "\ngpgcheck = 0" \
+ "\n" \
+ "\n[almalinux9-baseos]" \
+ "\nname = almalinux9-baseos" \
+ "\nbaseurl = https://repo.almalinux.org/almalinux/9/BaseOS/\$basearch/os/" \
+ "\nenabled = 1" \
  "\ngpgcheck = 0" > /etc/yum.repos.d/almalinux.repo
 
 RUN microdnf -y install podman
