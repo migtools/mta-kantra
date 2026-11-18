@@ -135,7 +135,7 @@ jobs:
           podman cp kantra-download:/jdtls .
           podman cp kantra-download:/opt/rulesets .
           podman rm kantra-download
-          ./kantra analyze --input $(pwd)/example-applications/example-1/ \
+          KANTRA_SKIP_MAVEN_CACHE=true ./kantra analyze --input $(pwd)/example-applications/example-1/ \
             --output ./output/ --target cloud-readiness \
             --run-local=false
 
